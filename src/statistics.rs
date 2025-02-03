@@ -245,8 +245,6 @@ impl StatisticsAggregator {
                      ORDER BY period_start ASC",
                 )?;
 
-                println!("stmt: {:?}", stmt);
-
                 let rows = stmt.query_map(
                     [period_type, &start_ts.to_string(), &end_ts.to_string()],
                     |row| {
@@ -270,7 +268,6 @@ impl StatisticsAggregator {
                 let mut data_map: std::collections::HashMap<i64, i64> =
                     std::collections::HashMap::new();
                 for row in rows {
-                    println!("row: {:?}", row);
                     let (timestamp, visitors) = row?;
                     data_map.insert(timestamp, visitors);
                 }
