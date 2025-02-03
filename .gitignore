@@ -29,3 +29,5 @@ target/
 
 # Cargo.lock should be committed for binary projects
 # Cargo.lock 
+
+.github_token

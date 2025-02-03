@@ -1,0 +1,9 @@
+.kamal
+.github_token
+.vscode
+config/
+target/
+analytics.db
+.gitignore
+.ruby-version
+.tool-versions
