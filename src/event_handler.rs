@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, instrument, warn};
 use url::Url;
 
+use crate::remote_ip::RemoteIp;
 use crate::AppState;
 use crate::Event;
 
@@ -171,7 +172,7 @@ impl EventHandler {
     ) -> Result<StatusCode, StatusCode> {
         debug!("Processing new event");
 
-        let ip_str = addr.ip().to_string();
+        let ip_str = RemoteIp::get(&headers, &addr);
         let user_agent = self.extract_user_agent(&headers);
         event.referrer = self.extract_referrer(&headers);
 
