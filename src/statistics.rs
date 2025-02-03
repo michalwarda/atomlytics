@@ -6,6 +6,13 @@ pub struct StatisticsAggregator {
     db: Arc<Connection>,
 }
 
+#[derive(serde::Deserialize)]
+pub enum Metric {
+    UniqueVisitors,
+    Visits,
+    Pageviews,
+}
+
 impl StatisticsAggregator {
     pub fn new(db: Arc<Connection>) -> Self {
         Self { db }
@@ -166,6 +173,7 @@ impl StatisticsAggregator {
         &self,
         timeframe: TimeFrame,
         granularity: Granularity,
+        metric: Metric,
     ) -> Result<Statistics, tokio_rusqlite::Error> {
         let now = Utc::now();
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
@@ -179,7 +187,7 @@ impl StatisticsAggregator {
             TimeFrame::AllTime => (0, now.timestamp(), None),
         };
 
-        let stats = self.get_time_series_data(start_ts, end_ts, granularity).await?;
+        let stats = self.get_time_series_data(start_ts, end_ts, granularity, metric).await?;
 
         let aggregates = match period_name {
             Some(period) => {
@@ -212,6 +220,7 @@ impl StatisticsAggregator {
         start_ts: i64,
         end_ts: i64,
         granularity: Granularity,
+        metric: Metric,
     ) -> Result<Vec<(i64, i64)>, tokio_rusqlite::Error> {
         let period_type = match granularity {
             Granularity::Minutes => "minute",
@@ -228,22 +237,40 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT period_start, unique_visitors 
+                    "SELECT period_start, unique_visitors, total_visits, total_pageviews
                      FROM statistics 
                      WHERE period_type = ? 
                      AND period_start >= ? 
                      AND period_start <= ?
                      ORDER BY period_start ASC",
                 )?;
+
+                println!("stmt: {:?}", stmt);
+
                 let rows = stmt.query_map(
                     [period_type, &start_ts.to_string(), &end_ts.to_string()],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )?;
+                    |row| {
+                        match metric {
+                            Metric::UniqueVisitors => Ok((row.get(0)?, row.get(1)?)),
+                            Metric::Visits => Ok((row.get(0)?, row.get(2)?)),
+                            Metric::Pageviews => Ok((row.get(0)?, row.get(3)?)),
+                        }
+                    },
+                )
+                .map_err(|_| {
+                    println!("Failed to get time series data");
+                    rusqlite::Error::SqliteFailure(
+                        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+                        Some("Failed to get time series data".to_string()),
+                    )
+                })?;
+
 
                 // Convert to HashMap for easy lookup
                 let mut data_map: std::collections::HashMap<i64, i64> =
                     std::collections::HashMap::new();
                 for row in rows {
+                    println!("row: {:?}", row);
                     let (timestamp, visitors) = row?;
                     data_map.insert(timestamp, visitors);
                 }

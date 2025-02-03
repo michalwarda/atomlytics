@@ -77,6 +77,14 @@
         <h1>Analytics Dashboard</h1>
         
         <div class="filters">
+            <div class="filter-group"></div>
+                <label for="metric">Metric:</label>
+                <select id="metric" onchange="updateFilters()">
+                    <option value="UniqueVisitors">Unique Visitors</option>
+                    <option value="Visits">Total Visits</option>
+                    <option value="Pageviews">Total Pageviews</option>
+                </select>
+            </div>
             <div class="filter-group">
                 <label for="timeframe">Time Frame:</label>
                 <select id="timeframe" onchange="updateFilters()">
@@ -117,6 +125,7 @@
 
     <script>
         function updateFilters() {
+            const metric = document.getElementById('metric').value;
             const timeframe = document.getElementById('timeframe').value;
             const granularitySelect = document.getElementById('granularity');
             
@@ -143,8 +152,8 @@
         async function fetchData() {
             const timeframe = document.getElementById('timeframe').value;
             const granularity = document.getElementById('granularity').value;
-            
-            const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}`);
+            const metric = document.getElementById('metric').value;
+            const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}`);
             const data = await response.json();
             
             const trace = {
@@ -152,14 +161,14 @@
                 y: data.stats.map(([, visitors]) => visitors),
                 type: 'scatter',
                 mode: 'lines+markers',
-                name: 'Unique Visitors',
+                name: metric,
                 connectgaps: false,
                 line: {
                     shape: 'hv',  // Creates a stepped line
                 }
             };
             
-            const title = `Unique Visitors (${timeframe})`;
+            const title = `${metric} (${timeframe})`;
             const xaxisTitle = granularity === 'Days' ? 'Date' : 'Time';
             
             let xaxisFormat;
@@ -183,7 +192,7 @@
                     showgrid: true
                 },
                 yaxis: { 
-                    title: 'Unique Visitors',
+                    title: metric,
                     rangemode: 'nonnegative',  // Prevents negative values
                     showgrid: true
                 },

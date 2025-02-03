@@ -215,6 +215,7 @@ impl AppState {
 struct StatisticsParams {
     timeframe: statistics::TimeFrame,
     granularity: statistics::Granularity,
+    metric: statistics::Metric,
 }
 
 async fn basic_auth(
@@ -291,7 +292,16 @@ fn get_migrations() -> Vec<Migration> {
     vec![
         Migration::new("Add bounce rate to aggregated metrics", 1, |conn| {
             conn.execute(
-                "ALTER TABLE statistics ADD COLUMN total_visits INTEGER NOT NULL DEFAULT 0; ALTER TABLE statistics ADD COLUMN total_pageviews INTEGER NOT NULL DEFAULT 0;",
+                "
+                ALTER TABLE statistics ADD COLUMN total_visits INTEGER NOT NULL DEFAULT 0; 
+                ",
+                [],
+            )?;
+
+            conn.execute(
+                "
+                ALTER TABLE statistics ADD COLUMN total_pageviews INTEGER NOT NULL DEFAULT 0;
+                ",
                 [],
             )?;
             Ok(())
@@ -386,9 +396,6 @@ async fn main() -> anyhow::Result<()> {
     // Initialize SQLite database
     let db = Connection::open("db/analytics.db").await?;
 
-    // Run migrations before creating tables
-    run_migrations(&db).await?;
-
     // Create tables if they don't exist
     db.call(|conn| {
         conn.execute(
@@ -446,6 +453,8 @@ async fn main() -> anyhow::Result<()> {
         Ok(())
     })
     .await?;
+
+    run_migrations(&db).await?;
 
     // Initialize with a random salt
     use rand::Rng;
@@ -594,7 +603,7 @@ async fn get_statistics(
 ) -> Result<Json<Statistics>, StatusCode> {
     let aggregator = StatisticsAggregator::new(state.db);
     aggregator
-        .get_filtered_statistics(params.timeframe, params.granularity)
+        .get_filtered_statistics(params.timeframe, params.granularity, params.metric)
         .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
