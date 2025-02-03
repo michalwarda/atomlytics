@@ -1,0 +1,179 @@
+use chrono::{DateTime, TimeZone, Utc};
+use std::sync::Arc;
+use tokio_rusqlite::Connection;
+
+pub struct StatisticsAggregator {
+    db: Arc<Connection>,
+}
+
+impl StatisticsAggregator {
+    pub fn new(db: Arc<Connection>) -> Self {
+        Self { db }
+    }
+
+    pub async fn aggregate_statistics(&self) -> Result<(), tokio_rusqlite::Error> {
+        self.aggregate_minute_stats().await?;
+        self.aggregate_hourly_stats().await?;
+        self.aggregate_daily_stats().await?;
+        Ok(())
+    }
+
+    async fn aggregate_minute_stats(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let five_minutes_ago = now - chrono::Duration::minutes(5);
+
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, created_at)
+                     SELECT 
+                        'minute' as period_type,
+                        (timestamp / 60) * 60 as period_start,
+                        COUNT(DISTINCT visitor_id) as unique_visitors,
+                        strftime('%s', 'now') as created_at
+                     FROM events 
+                     WHERE timestamp >= ?
+                     GROUP BY period_start",
+                    [five_minutes_ago.timestamp()],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    async fn aggregate_hourly_stats(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let day_ago = now - chrono::Duration::days(1);
+
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, created_at)
+                     SELECT 
+                        'hour' as period_type,
+                        (timestamp / 3600) * 3600 as period_start,
+                        COUNT(DISTINCT visitor_id) as unique_visitors,
+                        strftime('%s', 'now') as created_at
+                     FROM events 
+                     WHERE timestamp >= ?
+                     GROUP BY period_start",
+                    [day_ago.timestamp()],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    async fn aggregate_daily_stats(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let month_ago = now - chrono::Duration::days(30);
+
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, created_at)
+                     SELECT 
+                        'day' as period_type,
+                        (timestamp / 86400) * 86400 as period_start,
+                        COUNT(DISTINCT visitor_id) as unique_visitors,
+                        strftime('%s', 'now') as created_at
+                     FROM events 
+                     WHERE timestamp >= ?
+                     GROUP BY period_start",
+                    [month_ago.timestamp()],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    pub async fn get_filtered_statistics(
+        &self,
+        timeframe: TimeFrame,
+        granularity: Granularity,
+    ) -> Result<Statistics, tokio_rusqlite::Error> {
+        let now = Utc::now();
+        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let today_start_ts = today_start.and_utc().timestamp();
+
+        let (start_ts, end_ts) = match timeframe {
+            TimeFrame::Today => (today_start_ts, now.timestamp()),
+            TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts),
+            TimeFrame::Last7Days => (now.timestamp() - 7 * 86400, now.timestamp()),
+            TimeFrame::Last30Days => (now.timestamp() - 30 * 86400, now.timestamp()),
+            TimeFrame::AllTime => (0, now.timestamp()),
+        };
+
+        let period_type = match granularity {
+            Granularity::Minutes => "minute",
+            Granularity::Hours => "hour",
+            Granularity::Days => "day",
+        };
+
+        let interval = match granularity {
+            Granularity::Minutes => 60, // 1 minute
+            Granularity::Hours => 3600, // 1 hour
+            Granularity::Days => 86400, // 1 day
+        };
+
+        let stats = self
+            .db
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT period_start, unique_visitors 
+                     FROM statistics 
+                     WHERE period_type = ? 
+                     AND period_start >= ? 
+                     AND period_start <= ?
+                     ORDER BY period_start ASC",
+                )?;
+                let rows = stmt.query_map(
+                    [period_type, &start_ts.to_string(), &end_ts.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+
+                // Convert to HashMap for easy lookup
+                let mut data_map: std::collections::HashMap<i64, i64> =
+                    std::collections::HashMap::new();
+                for row in rows {
+                    let (timestamp, visitors) = row?;
+                    data_map.insert(timestamp, visitors);
+                }
+
+                // Generate complete series
+                let mut complete_series = Vec::new();
+                let mut current_ts = start_ts - (start_ts % interval);
+                while current_ts <= end_ts {
+                    let visitors = data_map.get(&current_ts).copied().unwrap_or(0);
+                    complete_series.push((current_ts, visitors));
+                    current_ts += interval;
+                }
+
+                Ok(complete_series)
+            })
+            .await?;
+
+        Ok(Statistics { stats })
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub enum TimeFrame {
+    Today,
+    Yesterday,
+    Last7Days,
+    Last30Days,
+    AllTime,
+}
+
+#[derive(serde::Deserialize)]
+pub enum Granularity {
+    Minutes,
+    Hours,
+    Days,
+}
+
+#[derive(serde::Serialize)]
+pub struct Statistics {
+    stats: Vec<(i64, i64)>,
+}

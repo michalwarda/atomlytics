@@ -1,7 +1,8 @@
 mod event_handler;
 mod remote_ip;
+mod statistics;
 
-use axum::extract::ConnectInfo;
+use axum::extract::{ConnectInfo, Query};
 use axum::http::HeaderMap;
 use axum::{
     extract::State,
@@ -14,6 +15,7 @@ use maxminddb::geoip2;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sha2::{Digest, Sha256};
+use statistics::{Statistics, StatisticsAggregator};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,7 +24,7 @@ use tokio::sync::RwLock;
 use tokio_rusqlite::Connection;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::{DefaultOnFailure, TraceLayer};
-use tracing::{info, warn, Level, Span};
+use tracing::{error, info, warn, Level, Span};
 use uaparser::{Parser, UserAgentParser};
 
 #[derive(Clone)]
@@ -204,6 +206,12 @@ impl AppState {
     }
 }
 
+#[derive(Deserialize)]
+struct StatisticsParams {
+    timeframe: statistics::TimeFrame,
+    granularity: statistics::Granularity,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize logging
@@ -256,7 +264,22 @@ async fn main() -> anyhow::Result<()> {
             )",
             [],
         )
-        .map_err(tokio_rusqlite::Error::from)
+        .map_err(tokio_rusqlite::Error::from)?;
+
+        // Create statistics table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS statistics (
+                id INTEGER PRIMARY KEY,
+                period_type TEXT NOT NULL,  -- 'minute' or 'hour'
+                period_start INTEGER NOT NULL,  -- timestamp of period start
+                unique_visitors INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(period_type, period_start)
+            )",
+            [],
+        )?;
+
+        Ok(())
     })
     .await?;
 
@@ -293,11 +316,26 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Start statistics aggregation task
+    let db_clone = app_state.db.clone();
+    tokio::spawn(async move {
+        let aggregator = StatisticsAggregator::new(db_clone);
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            if let Err(e) = aggregator.aggregate_statistics().await {
+                error!("Failed to aggregate statistics: {}", e);
+            }
+        }
+    });
+
     // Create router with routes
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/api/event", post(track_event))
         .route("/script.js", get(serve_script))
+        .route("/dashboard", get(serve_dashboard))
+        .route("/api/statistics", get(get_statistics))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
@@ -370,4 +408,25 @@ async fn serve_script() -> impl axum::response::IntoResponse {
         .header("Cache-Control", "max-age=3600")
         .body(SCRIPT.to_string())
         .unwrap()
+}
+
+async fn serve_dashboard() -> impl axum::response::IntoResponse {
+    const DASHBOARD_HTML: &str = include_str!("dashboard.html");
+
+    axum::response::Response::builder()
+        .header("Content-Type", "text/html")
+        .body(DASHBOARD_HTML.to_string())
+        .unwrap()
+}
+
+async fn get_statistics(
+    State(state): State<AppState>,
+    Query(params): Query<StatisticsParams>,
+) -> Result<Json<Statistics>, StatusCode> {
+    let aggregator = StatisticsAggregator::new(state.db);
+    aggregator
+        .get_filtered_statistics(params.timeframe, params.granularity)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }

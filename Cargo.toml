@@ -41,6 +41,9 @@ uaparser = "0.6"
 # String parsing
 regex = "1.10"
 
+# Date and time
+chrono = "0.4"
+
 [profile.release]
 opt-level = 3
 lto = true
