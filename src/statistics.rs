@@ -38,8 +38,8 @@ impl StatisticsAggregator {
                         'minute' as period_type,
                         (timestamp / 60) * 60 as period_start,
                         COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END) as total_pageviews,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
                         strftime('%s', 'now') as created_at
                      FROM events 
                      WHERE timestamp >= ?
@@ -63,8 +63,8 @@ impl StatisticsAggregator {
                         'hour' as period_type,
                         (timestamp / 3600) * 3600 as period_start,
                         COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END) as total_pageviews,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
                         strftime('%s', 'now') as created_at
                      FROM events 
                      WHERE timestamp >= ?
@@ -88,8 +88,8 @@ impl StatisticsAggregator {
                         'day' as period_type,
                         (timestamp / 86400) * 86400 as period_start,
                         COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END) as total_pageviews,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
                         strftime('%s', 'now') as created_at
                      FROM events 
                      WHERE timestamp >= ?
@@ -124,8 +124,8 @@ impl StatisticsAggregator {
                             ?,
                             ?,
                             COUNT(DISTINCT visitor_id),
-                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END),
-                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END),
+                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
                             strftime('%s', 'now')
                         FROM events 
                         WHERE timestamp >= ? AND timestamp <= ?",
@@ -150,8 +150,8 @@ impl StatisticsAggregator {
                 let mut stmt = conn.prepare(
                     "SELECT 
                         COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END) as total_pageviews
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews
                      FROM events 
                      WHERE timestamp >= ? AND timestamp <= ?"
                 )?;
