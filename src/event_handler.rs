@@ -2,6 +2,7 @@ use axum::{http::HeaderMap, http::StatusCode};
 use rusqlite::params;
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{debug, instrument, warn};
 use url::Url;
 
 use crate::AppState;
@@ -16,6 +17,7 @@ impl EventHandler {
         Self { state }
     }
 
+    #[instrument(skip(self, headers))]
     fn extract_user_agent(&self, headers: &HeaderMap) -> String {
         headers
             .get("user-agent")
@@ -24,6 +26,7 @@ impl EventHandler {
             .to_string()
     }
 
+    #[instrument(skip(self, headers))]
     fn extract_referrer(&self, headers: &HeaderMap) -> Option<String> {
         headers
             .get("referer")
@@ -31,6 +34,7 @@ impl EventHandler {
             .map(|s| s.to_string())
     }
 
+    #[instrument(skip(self))]
     fn extract_domain(&self, page_url: &str) -> String {
         Url::parse(page_url)
             .map(|u| u.host_str().unwrap_or("unknown").to_string())
@@ -50,22 +54,37 @@ impl EventHandler {
             .map(|p| serde_json::to_string(p).unwrap_or_default())
     }
 
+    #[instrument(skip(self))]
     async fn process_user_agent_info(&self, user_agent: &str, event: &mut Event) {
         let ua_info = self.state.parse_user_agent(user_agent);
         event.browser = ua_info.browser;
         event.operating_system = ua_info.operating_system;
         event.device_type = ua_info.device_type;
+        debug!(
+            browser = %event.browser,
+            os = %event.operating_system,
+            device = %event.device_type,
+            "Processed user agent info"
+        );
     }
 
+    #[instrument(skip(self))]
     async fn process_location(&self, ip_str: &str, event: &mut Event) {
         if event.country.is_none() || event.region.is_none() || event.city.is_none() {
             let location = self.state.get_location(ip_str);
             event.country = location.country;
             event.region = location.region;
             event.city = location.city;
+            debug!(
+                country = ?event.country,
+                region = ?event.region,
+                city = ?event.city,
+                "Processed location info"
+            );
         }
     }
 
+    #[instrument(skip(self, event, custom_params))]
     async fn save_event(
         &self,
         event: &Event,
@@ -87,7 +106,13 @@ impl EventHandler {
         let utm_term = event.utm_term.clone();
         let timestamp = event.timestamp;
         let visitor_id = event.visitor_id.clone();
-        let custom_params = custom_params;
+
+        debug!(
+            event_type = %event_type,
+            page_url = %page_url,
+            visitor_id = ?visitor_id,
+            "Saving event to database"
+        );
 
         self.state
             .db
@@ -121,48 +146,61 @@ impl EventHandler {
                         &custom_params,
                     ],
                 )
-                .map(|_| ())
-                .map_err(tokio_rusqlite::Error::from)
+                .map(|_| {
+                    debug!(
+                        event_type = %event_type,
+                        page_url = %page_url,
+                        "Successfully saved event"
+                    );
+                    ()
+                })
+                .map_err(|e| {
+                    warn!(error = %e, "Failed to save event");
+                    tokio_rusqlite::Error::from(e)
+                })
             })
             .await
     }
 
+    #[instrument(skip(self, headers), fields(ip = %addr.ip(), event_type = %event.event_type))]
     pub async fn handle_event(
         &self,
         addr: SocketAddr,
         headers: HeaderMap,
         mut event: Event,
     ) -> Result<StatusCode, StatusCode> {
-        // Extract basic information
+        debug!("Processing new event");
+
         let ip_str = addr.ip().to_string();
         let user_agent = self.extract_user_agent(&headers);
         event.referrer = self.extract_referrer(&headers);
 
-        // Process user agent information
         self.process_user_agent_info(&user_agent, &mut event).await;
 
-        // Extract domain and generate visitor ID
         let domain = self.extract_domain(&event.page_url);
         let visitor_id = self
             .state
             .get_visitor_id(&ip_str, &user_agent, &domain)
             .await;
-        event.visitor_id = Some(visitor_id);
+        event.visitor_id = Some(visitor_id.clone());
 
-        // Process location information
+        debug!(visitor_id = %visitor_id, "Generated visitor ID");
+
         self.process_location(&ip_str, &mut event).await;
 
-        // Set timestamp
         event.timestamp = self.get_current_timestamp();
 
-        // Prepare custom parameters
         let custom_params = self.serialize_custom_params(&event.custom_params);
 
-        // Save event to database
-        self.save_event(&event, custom_params)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        Ok(StatusCode::CREATED)
+        match self.save_event(&event, custom_params).await {
+            Ok(_) => {
+                debug!("Successfully processed event");
+                Ok(StatusCode::CREATED)
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to process event");
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
     }
 }

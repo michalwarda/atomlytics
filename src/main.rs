@@ -10,7 +10,6 @@ use axum::{
 };
 use event_handler::EventHandler;
 use maxminddb::geoip2;
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sha2::{Digest, Sha256};
@@ -21,8 +20,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tokio_rusqlite::Connection;
 use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
-use tracing::{info, warn, Level};
+use tower_http::trace::{DefaultOnFailure, TraceLayer};
+use tracing::{info, warn, Level, Span};
 use uaparser::{Parser, UserAgentParser};
 
 #[derive(Clone)]
@@ -35,8 +34,12 @@ struct AppState {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
+    #[serde(rename = "u")]
     page_url: String,
+    #[serde(rename = "n")]
     event_type: String,
+    #[serde(rename = "r", default)]
+    custom_params: Option<serde_json::Value>,
     #[serde(skip_deserializing)]
     referrer: Option<String>,
     #[serde(skip_deserializing)]
@@ -45,20 +48,26 @@ struct Event {
     operating_system: String,
     #[serde(skip_deserializing)]
     device_type: String,
+    #[serde(skip_deserializing)]
     country: Option<String>,
+    #[serde(skip_deserializing)]
     region: Option<String>,
+    #[serde(skip_deserializing)]
     city: Option<String>,
+    #[serde(skip_deserializing)]
     utm_source: Option<String>,
+    #[serde(skip_deserializing)]
     utm_medium: Option<String>,
+    #[serde(skip_deserializing)]
     utm_campaign: Option<String>,
+    #[serde(skip_deserializing)]
     utm_content: Option<String>,
+    #[serde(skip_deserializing)]
     utm_term: Option<String>,
     #[serde(skip_deserializing)]
     timestamp: i64,
-    #[serde(default)]
+    #[serde(skip_deserializing)]
     visitor_id: Option<String>,
-    #[serde(default)]
-    custom_params: Option<serde_json::Value>,
 }
 
 #[derive(Debug)]
@@ -197,10 +206,11 @@ impl AppState {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize logging
+    let env = std::env::var("RUST_LOG").unwrap_or("info".to_string());
     tracing_subscriber::fmt()
         .with_target(false)
         .with_level(true)
-        .with_max_level(Level::INFO)
+        .with_max_level(env.parse().unwrap_or(Level::INFO))
         .init();
 
     info!("Starting Atomlytics server...");
@@ -286,7 +296,40 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/event", post(track_event))
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
+                    let method = request.method();
+                    let uri = request.uri();
+                    let user_agent = request
+                        .headers()
+                        .get("user-agent")
+                        .and_then(|h| h.to_str().ok())
+                        .unwrap_or("unknown");
+
+                    tracing::info_span!(
+                        "request",
+                        method = %method,
+                        uri = %uri,
+                        user_agent = %user_agent,
+                    )
+                })
+                .on_request(|_request: &axum::http::Request<_>, _span: &Span| {
+                    info!("Started processing request");
+                })
+                .on_response(
+                    |response: &axum::http::Response<_>,
+                     latency: std::time::Duration,
+                     _span: &Span| {
+                        info!(
+                            status = %response.status(),
+                            latency = %latency.as_secs_f64(),
+                            "Finished processing request"
+                        );
+                    },
+                )
+                .on_failure(DefaultOnFailure::new().level(Level::WARN)),
+        )
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
