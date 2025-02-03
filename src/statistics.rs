@@ -1,4 +1,4 @@
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::Utc;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
 

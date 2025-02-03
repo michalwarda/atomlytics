@@ -44,6 +44,9 @@ regex = "1.10"
 # Date and time
 chrono = "0.4"
 
+# Base64 encoding
+base64 = "0.21"
+
 [profile.release]
 opt-level = 3
 lto = true

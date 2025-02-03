@@ -4,18 +4,22 @@ mod statistics;
 
 use axum::extract::{ConnectInfo, Query};
 use axum::http::HeaderMap;
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::{
     extract::State,
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD as base64, Engine};
 use event_handler::EventHandler;
 use maxminddb::geoip2;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sha2::{Digest, Sha256};
 use statistics::{Statistics, StatisticsAggregator};
+use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -212,6 +216,42 @@ struct StatisticsParams {
     granularity: statistics::Granularity,
 }
 
+async fn basic_auth(
+    headers: HeaderMap,
+    request: axum::http::Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let auth_header = headers
+        .get("Authorization")
+        .and_then(|header| header.to_str().ok())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    if !auth_header.starts_with("Basic ") {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let credentials = auth_header["Basic ".len()..].trim().to_string();
+
+    let decoded = base64
+        .decode(credentials)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let credentials = String::from_utf8(decoded).map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let mut parts = credentials.splitn(2, ':');
+    let username = parts.next().unwrap_or("");
+    let password = parts.next().unwrap_or("");
+
+    let expected_username = env::var("DASHBOARD_USERNAME").unwrap_or_else(|_| "admin".to_string());
+    let expected_password = env::var("DASHBOARD_PASSWORD").unwrap_or_else(|_| "admin".to_string());
+
+    if username == expected_username && password == expected_password {
+        Ok(next.run(request).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize logging
@@ -348,8 +388,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         .route("/api/event", post(track_event))
         .route("/script.js", get(serve_script))
-        .route("/dashboard", get(serve_dashboard))
-        .route("/api/statistics", get(get_statistics))
+        .nest(
+            "/",
+            Router::new()
+                .route("/dashboard", get(serve_dashboard))
+                .route("/api/statistics", get(get_statistics))
+                .layer(middleware::from_fn(basic_auth)),
+        )
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
