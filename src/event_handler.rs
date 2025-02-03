@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
 
 use crate::AppState;
-use crate::PageView;
+use crate::Event;
 
 pub struct EventHandler {
     state: AppState,
@@ -50,43 +50,43 @@ impl EventHandler {
             .map(|p| serde_json::to_string(p).unwrap_or_default())
     }
 
-    async fn process_user_agent_info(&self, user_agent: &str, pageview: &mut PageView) {
+    async fn process_user_agent_info(&self, user_agent: &str, event: &mut Event) {
         let ua_info = self.state.parse_user_agent(user_agent);
-        pageview.browser = ua_info.browser;
-        pageview.operating_system = ua_info.operating_system;
-        pageview.device_type = ua_info.device_type;
+        event.browser = ua_info.browser;
+        event.operating_system = ua_info.operating_system;
+        event.device_type = ua_info.device_type;
     }
 
-    async fn process_location(&self, ip_str: &str, pageview: &mut PageView) {
-        if pageview.country.is_none() || pageview.region.is_none() || pageview.city.is_none() {
+    async fn process_location(&self, ip_str: &str, event: &mut Event) {
+        if event.country.is_none() || event.region.is_none() || event.city.is_none() {
             let location = self.state.get_location(ip_str);
-            pageview.country = location.country;
-            pageview.region = location.region;
-            pageview.city = location.city;
+            event.country = location.country;
+            event.region = location.region;
+            event.city = location.city;
         }
     }
 
     async fn save_event(
         &self,
-        pageview: &PageView,
+        event: &Event,
         custom_params: Option<String>,
     ) -> Result<(), tokio_rusqlite::Error> {
-        let event_type = pageview.event_type.clone();
-        let page_url = pageview.page_url.clone();
-        let referrer = pageview.referrer.clone();
-        let browser = pageview.browser.clone();
-        let operating_system = pageview.operating_system.clone();
-        let device_type = pageview.device_type.clone();
-        let country = pageview.country.clone();
-        let region = pageview.region.clone();
-        let city = pageview.city.clone();
-        let utm_source = pageview.utm_source.clone();
-        let utm_medium = pageview.utm_medium.clone();
-        let utm_campaign = pageview.utm_campaign.clone();
-        let utm_content = pageview.utm_content.clone();
-        let utm_term = pageview.utm_term.clone();
-        let timestamp = pageview.timestamp;
-        let visitor_id = pageview.visitor_id.clone();
+        let event_type = event.event_type.clone();
+        let page_url = event.page_url.clone();
+        let referrer = event.referrer.clone();
+        let browser = event.browser.clone();
+        let operating_system = event.operating_system.clone();
+        let device_type = event.device_type.clone();
+        let country = event.country.clone();
+        let region = event.region.clone();
+        let city = event.city.clone();
+        let utm_source = event.utm_source.clone();
+        let utm_medium = event.utm_medium.clone();
+        let utm_campaign = event.utm_campaign.clone();
+        let utm_content = event.utm_content.clone();
+        let utm_term = event.utm_term.clone();
+        let timestamp = event.timestamp;
+        let visitor_id = event.visitor_id.clone();
         let custom_params = custom_params;
 
         self.state
@@ -131,36 +131,35 @@ impl EventHandler {
         &self,
         addr: SocketAddr,
         headers: HeaderMap,
-        mut pageview: PageView,
+        mut event: Event,
     ) -> Result<StatusCode, StatusCode> {
         // Extract basic information
         let ip_str = addr.ip().to_string();
         let user_agent = self.extract_user_agent(&headers);
-        pageview.referrer = self.extract_referrer(&headers);
+        event.referrer = self.extract_referrer(&headers);
 
         // Process user agent information
-        self.process_user_agent_info(&user_agent, &mut pageview)
-            .await;
+        self.process_user_agent_info(&user_agent, &mut event).await;
 
         // Extract domain and generate visitor ID
-        let domain = self.extract_domain(&pageview.page_url);
+        let domain = self.extract_domain(&event.page_url);
         let visitor_id = self
             .state
             .get_visitor_id(&ip_str, &user_agent, &domain)
             .await;
-        pageview.visitor_id = Some(visitor_id);
+        event.visitor_id = Some(visitor_id);
 
         // Process location information
-        self.process_location(&ip_str, &mut pageview).await;
+        self.process_location(&ip_str, &mut event).await;
 
         // Set timestamp
-        pageview.timestamp = self.get_current_timestamp();
+        event.timestamp = self.get_current_timestamp();
 
         // Prepare custom parameters
-        let custom_params = self.serialize_custom_params(&pageview.custom_params);
+        let custom_params = self.serialize_custom_params(&event.custom_params);
 
         // Save event to database
-        self.save_event(&pageview, custom_params)
+        self.save_event(&event, custom_params)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

@@ -34,7 +34,7 @@ struct AppState {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct PageView {
+struct Event {
     page_url: String,
     event_type: String,
     #[serde(skip_deserializing)]
@@ -311,8 +311,8 @@ async fn track_event(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    Json(pageview): Json<PageView>,
+    Json(event): Json<Event>,
 ) -> Result<StatusCode, StatusCode> {
     let handler = EventHandler::new(state);
-    handler.handle_event(addr, headers, pageview).await
+    handler.handle_event(addr, headers, event).await
 }
