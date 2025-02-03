@@ -26,6 +26,7 @@ FROM debian:buster-slim
 COPY --from=build /atomlytics/target/release/atomlytics .
 COPY ./GeoLite2-City.mmdb .
 COPY ./regexes.yaml .
+COPY ./db ./db
 
 # set the startup command to run your binary
 CMD ["./atomlytics"]

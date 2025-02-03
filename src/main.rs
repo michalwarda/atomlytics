@@ -228,7 +228,7 @@ async fn main() -> anyhow::Result<()> {
     let geoip = maxminddb::Reader::open_readfile(geoip_path)?;
 
     // Initialize SQLite database
-    let db = Connection::open("analytics.db").await?;
+    let db = Connection::open("db/analytics.db").await?;
 
     // Create tables if they don't exist
     db.call(|conn| {
@@ -295,7 +295,7 @@ async fn main() -> anyhow::Result<()> {
     // Create router with routes
     let app = Router::new()
         .route("/health", get(health_check))
-        .route("/event", post(track_event))
+        .route("/api/event", post(track_event))
         .route("/script.js", get(serve_script))
         .layer(
             TraceLayer::new_for_http()
