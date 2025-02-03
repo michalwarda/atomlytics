@@ -25,7 +25,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::RwLock;
 use tokio_rusqlite::Connection;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::{DefaultOnFailure, TraceLayer};
@@ -36,7 +35,6 @@ use uaparser::{Parser, UserAgentParser};
 struct AppState {
     db: Arc<Connection>,
     geoip: Arc<maxminddb::Reader<Vec<u8>>>,
-    salt: Arc<RwLock<String>>,
     parser: Arc<UserAgentParser>,
 }
 
@@ -168,14 +166,6 @@ impl AppState {
         }
     }
 
-    async fn get_visitor_id(&self, ip: &str, user_agent: &str, domain: &str) -> String {
-        let salt = self.salt.read().await;
-        let input = format!("{}{}{}{}", *salt, domain, ip, user_agent);
-        let mut hasher = Sha256::new();
-        hasher.update(input.as_bytes());
-        format!("{:x}", hasher.finalize())
-    }
-
     fn get_current_day() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -184,29 +174,79 @@ impl AppState {
             / 86400 // seconds in a day
     }
 
-    async fn rotate_salt_if_needed(&self) {
-        let mut salt = self.salt.write().await;
+    async fn get_visitor_id(&self, ip: &str, user_agent: &str, domain: &str) -> String {
         let current_day = Self::get_current_day();
-        let salt_day = salt
-            .split('_')
-            .next()
-            .unwrap_or("0")
-            .parse::<i64>()
-            .unwrap_or(0);
+        let salt = self
+            .db
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT value FROM salt WHERE day = ?",
+                    [current_day],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(|e| e.into())
+            })
+            .await
+            .unwrap_or_else(|_| "default_salt".to_string());
 
-        if current_day > salt_day {
+        let input = format!("{}{}{}{}", salt, domain, ip, user_agent);
+        let mut hasher = Sha256::new();
+        hasher.update(input.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    async fn rotate_salt_if_needed(&self) {
+        let current_day = Self::get_current_day();
+
+        let needs_rotation = self
+            .db
+            .call(move |conn| {
+                let count: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM salt WHERE day = ?",
+                    [current_day],
+                    |row| row.get(0),
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(count == 0)
+            })
+            .await
+            .unwrap_or(true);
+
+        if needs_rotation {
             use rand::Rng;
-            let new_salt = format!(
-                "{}_{}",
-                current_day,
-                rand::thread_rng()
-                    .sample_iter(&rand::distributions::Alphanumeric)
-                    .take(16)
-                    .map(char::from)
-                    .collect::<String>()
-            );
-            *salt = new_salt;
-            info!("Rotated daily salt");
+            let new_salt = rand::thread_rng()
+                .sample_iter(&rand::distributions::Alphanumeric)
+                .take(16)
+                .map(char::from)
+                .collect::<String>();
+
+            let current_day = current_day;
+            let new_salt = new_salt;
+
+            if let Err(e) = self
+                .db
+                .call(move |conn| {
+                    Ok(conn.execute(
+                        "INSERT INTO salt (day, value) VALUES (?, ?)",
+                        params![current_day, new_salt],
+                    ))
+                })
+                .await
+            {
+                error!("Failed to rotate salt: {}", e);
+            } else {
+                info!("Rotated daily salt");
+            }
+
+            // Clean up old salts (keep only yesterday and today)
+            if let Err(e) = self
+                .db
+                .call(move |conn| {
+                    Ok(conn.execute("DELETE FROM salt WHERE day < ?", params![current_day - 1]))
+                })
+                .await
+            {
+                error!("Failed to clean up old salts: {}", e);
+            }
         }
     }
 }
@@ -329,6 +369,16 @@ fn get_migrations() -> Vec<Migration> {
                 [],
             )?;
 
+            Ok(())
+        }),
+        Migration::new("Add salt table", 3, |conn| {
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS salt (
+                    day INTEGER PRIMARY KEY,
+                    value TEXT NOT NULL
+                )",
+                [],
+            )?;
             Ok(())
         }),
     ]
@@ -480,18 +530,6 @@ async fn main() -> anyhow::Result<()> {
 
     run_migrations(&db).await?;
 
-    // Initialize with a random salt
-    use rand::Rng;
-    let initial_salt = format!(
-        "{}_{}",
-        AppState::get_current_day(),
-        rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(16)
-            .map(char::from)
-            .collect::<String>()
-    );
-
     // Initialize User Agent Parser
     let parser =
         UserAgentParser::from_yaml("regexes.yaml").expect("Failed to initialize user agent parser");
@@ -499,19 +537,11 @@ async fn main() -> anyhow::Result<()> {
     let app_state = AppState {
         db: Arc::new(db),
         geoip: Arc::new(geoip),
-        salt: Arc::new(RwLock::new(initial_salt)),
         parser: Arc::new(parser),
     };
 
-    // Start salt rotation task
-    let state_clone = app_state.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // Check every hour
-        loop {
-            interval.tick().await;
-            state_clone.rotate_salt_if_needed().await;
-        }
-    });
+    // Ensure we have an initial salt
+    app_state.rotate_salt_if_needed().await;
 
     // Start statistics aggregation task
     let db_clone = app_state.db.clone();
