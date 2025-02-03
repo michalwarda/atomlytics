@@ -61,4 +61,5 @@
     document.addEventListener('DOMContentLoaded', () => {
         instance.track('pageview');
     });
+
 })(window); 

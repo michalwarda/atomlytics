@@ -279,6 +279,20 @@ async fn main() -> anyhow::Result<()> {
             [],
         )?;
 
+        // Create aggregated metrics table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS aggregated_metrics (
+                period_name TEXT PRIMARY KEY,
+                start_ts INTEGER,
+                end_ts INTEGER,
+                unique_visitors INTEGER,
+                total_visits INTEGER,
+                total_pageviews INTEGER,
+                created_at INTEGER
+            )",
+            [],
+        )?;
+
         Ok(())
     })
     .await?;

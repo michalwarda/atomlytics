@@ -15,6 +15,7 @@ impl StatisticsAggregator {
         self.aggregate_minute_stats().await?;
         self.aggregate_hourly_stats().await?;
         self.aggregate_daily_stats().await?;
+        self.aggregate_period_metrics().await?;
         Ok(())
     }
 
@@ -87,6 +88,74 @@ impl StatisticsAggregator {
             .await
     }
 
+    async fn aggregate_period_metrics(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let today_start_ts = today_start.and_utc().timestamp();
+
+        let periods = vec![
+            ("today", today_start_ts, now.timestamp()),
+            ("yesterday", today_start_ts - 86400, today_start_ts),
+            ("last_7_days", now.timestamp() - 7 * 86400, now.timestamp()),
+            ("last_30_days", now.timestamp() - 30 * 86400, now.timestamp()),
+        ];
+
+        self.db
+            .call(move |conn| {
+                for (period_name, start_ts, end_ts) in periods {
+                    conn.execute(
+                        "INSERT OR REPLACE INTO aggregated_metrics 
+                        (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, created_at)
+                        SELECT 
+                            ?,
+                            ?,
+                            ?,
+                            COUNT(DISTINCT visitor_id),
+                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id || '_' || timestamp / 1800 ELSE NULL END),
+                            COUNT(CASE WHEN event_type = 'pageview' THEN 1 ELSE NULL END),
+                            strftime('%s', 'now')
+                        FROM events 
+                        WHERE timestamp >= ? AND timestamp <= ?",
+                        [
+                            period_name,
+                            &start_ts.to_string(),
+                            &end_ts.to_string(),
+                            &start_ts.to_string(),
+                            &end_ts.to_string(),
+                        ],
+                    )?;
+                }
+
+                Ok(())
+            })
+            .await
+    }
+
+    async fn calculate_aggregates(&self, start_ts: i64, end_ts: i64) -> Result<AggregateMetrics, tokio_rusqlite::Error> {
+        self.db
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT 
+                        COUNT(DISTINCT visitor_id) as unique_visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id || '_' || timestamp / 1800 ELSE NULL END) as total_visits,
+                        COUNT(CASE WHEN event_type = 'pageview' THEN 1 ELSE NULL END) as total_pageviews
+                     FROM events 
+                     WHERE timestamp >= ? AND timestamp <= ?"
+                )?;
+                
+                let row = stmt.query_row([start_ts, end_ts], |row| {
+                    Ok(AggregateMetrics {
+                        unique_visitors: row.get(0)?,
+                        total_visits: row.get(1)?,
+                        total_pageviews: row.get(2)?,
+                    })
+                })?;
+                
+                Ok(row)
+            })
+            .await
+    }
+
     pub async fn get_filtered_statistics(
         &self,
         timeframe: TimeFrame,
@@ -96,14 +165,48 @@ impl StatisticsAggregator {
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
 
-        let (start_ts, end_ts) = match timeframe {
-            TimeFrame::Today => (today_start_ts, now.timestamp()),
-            TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts),
-            TimeFrame::Last7Days => (now.timestamp() - 7 * 86400, now.timestamp()),
-            TimeFrame::Last30Days => (now.timestamp() - 30 * 86400, now.timestamp()),
-            TimeFrame::AllTime => (0, now.timestamp()),
+        let (start_ts, end_ts, period_name) = match timeframe {
+            TimeFrame::Today => (today_start_ts, now.timestamp(), Some("today")),
+            TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts, Some("yesterday")),
+            TimeFrame::Last7Days => (now.timestamp() - 7 * 86400, now.timestamp(), Some("last_7_days")),
+            TimeFrame::Last30Days => (now.timestamp() - 30 * 86400, now.timestamp(), Some("last_30_days")),
+            TimeFrame::AllTime => (0, now.timestamp(), None),
         };
 
+        let stats = self.get_time_series_data(start_ts, end_ts, granularity).await?;
+
+        let aggregates = match period_name {
+            Some(period) => {
+                self.db
+                    .call(move |conn| {
+                        let mut stmt = conn.prepare(
+                            "SELECT unique_visitors, total_visits, total_pageviews 
+                             FROM aggregated_metrics 
+                             WHERE period_name = ?"
+                        )?;
+                        
+                        Ok(stmt.query_row([period], |row| {
+                            Ok(AggregateMetrics {
+                                unique_visitors: row.get(0)?,
+                                total_visits: row.get(1)?,
+                                total_pageviews: row.get(2)?,
+                            })
+                        })?)
+                    })
+                    .await
+            }
+            None => self.calculate_aggregates(start_ts, end_ts).await,
+        }?;
+
+        Ok(Statistics { stats, aggregates })
+    }
+
+    async fn get_time_series_data(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        granularity: Granularity,
+    ) -> Result<Vec<(i64, i64)>, tokio_rusqlite::Error> {
         let period_type = match granularity {
             Granularity::Minutes => "minute",
             Granularity::Hours => "hour",
@@ -111,13 +214,12 @@ impl StatisticsAggregator {
         };
 
         let interval = match granularity {
-            Granularity::Minutes => 60, // 1 minute
-            Granularity::Hours => 3600, // 1 hour
-            Granularity::Days => 86400, // 1 day
+            Granularity::Minutes => 60,
+            Granularity::Hours => 3600,
+            Granularity::Days => 86400,
         };
 
-        let stats = self
-            .db
+        self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT period_start, unique_visitors 
@@ -151,9 +253,7 @@ impl StatisticsAggregator {
 
                 Ok(complete_series)
             })
-            .await?;
-
-        Ok(Statistics { stats })
+            .await
     }
 }
 
@@ -174,6 +274,14 @@ pub enum Granularity {
 }
 
 #[derive(serde::Serialize)]
+pub struct AggregateMetrics {
+    pub unique_visitors: i64,
+    pub total_visits: i64,
+    pub total_pageviews: i64,
+}
+
+#[derive(serde::Serialize)]
 pub struct Statistics {
     stats: Vec<(i64, i64)>,
+    aggregates: AggregateMetrics,
 }

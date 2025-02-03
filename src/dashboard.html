@@ -46,6 +46,30 @@
             font-weight: 500;
             color: #444;
         }
+        .metrics-container {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            gap: 20px;
+        }
+        .metric {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            flex: 1;
+        }
+        .metric h3 {
+            margin: 0 0 10px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .metric p {
+            margin: 0;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -73,6 +97,21 @@
             </div>
         </div>
 
+        <div class="metrics-container">
+            <div class="metric">
+                <h3>Unique Visitors</h3>
+                <p id="unique-visitors">-</p>
+            </div>
+            <div class="metric">
+                <h3>Total Visits</h3>
+                <p id="total-visits">-</p>
+            </div>
+            <div class="metric">
+                <h3>Total Pageviews</h3>
+                <p id="total-pageviews">-</p>
+            </div>
+        </div>
+
         <div id="statsGraph" class="graph"></div>
     </div>
 
@@ -92,6 +131,13 @@
             }
             
             fetchData();
+        }
+
+        
+        function updateStatistics(data) {
+            document.getElementById('unique-visitors').textContent = data.aggregates.unique_visitors;
+            document.getElementById('total-visits').textContent = data.aggregates.total_visits;
+            document.getElementById('total-pageviews').textContent = data.aggregates.total_pageviews;
         }
 
         async function fetchData() {
@@ -148,6 +194,8 @@
                 },
                 margin: { t: 50, r: 20, l: 50, b: 50 }
             });
+
+            updateStatistics(data);
         }
 
         // Initialize filters and data
