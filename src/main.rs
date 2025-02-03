@@ -381,6 +381,13 @@ fn get_migrations() -> Vec<Migration> {
             )?;
             Ok(())
         }),
+        Migration::new("Add last_activity_at to events", 4, |conn| {
+            conn.execute(
+                "ALTER TABLE events ADD COLUMN last_activity_at INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+            Ok(())
+        }),
     ]
 }
 

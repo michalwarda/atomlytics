@@ -174,22 +174,35 @@ impl EventHandler {
             .state
             .db
             .call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT MAX(timestamp) FROM events WHERE visitor_id = ?1")?;
-                let last_timestamp: Option<i64> = stmt
-                    .query_row(params![visitor_id_for_query], |row| row.get(0))
-                    .unwrap_or(None);
+                let mut stmt = conn.prepare(
+                    "SELECT id, timestamp FROM events 
+                     WHERE visitor_id = ?1 AND event_type = 'visit'
+                     ORDER BY timestamp DESC LIMIT 1",
+                )?;
 
-                if let Some(last_ts) = last_timestamp {
-                    // If last event was more than 30 minutes ago (1800 seconds)
-                    if timestamp - last_ts > 1800 {
-                        return Ok(true);
+                let result = stmt.query_row(params![visitor_id_for_query], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+                });
+
+                match result {
+                    Ok((visit_id, last_ts)) => {
+                        if timestamp - last_ts <= 1800 {
+                            // Visit exists and is active, update last_activity_at
+                            conn.execute(
+                                "UPDATE events SET last_activity_at = ?1 WHERE id = ?2",
+                                params![timestamp, visit_id],
+                            )?;
+                            Ok(false)
+                        } else {
+                            // Visit exists but expired
+                            Ok(true)
+                        }
                     }
-                } else {
-                    // No previous events found for this visitor
-                    return Ok(true);
+                    Err(_) => {
+                        // No visit found
+                        Ok(true)
+                    }
                 }
-                Ok(false)
             })
             .await?;
 
