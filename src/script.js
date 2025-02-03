@@ -9,9 +9,21 @@
             Atomlytics.instance = this;
             const scriptTag = document.currentScript;
             this.endpoint = scriptTag.src.substring(0, scriptTag.src.lastIndexOf('/'));
+            this.lastPageviewUrl = null; // Track last pageview pathname
         }
 
         track(eventName, props = {}) {
+            const currentPathname = window.location.pathname;
+            // Skip if it's a pageview event with the same pathname as last time
+            if (eventName === 'pageview' && this.lastPageviewUrl === currentPathname) {
+                return;
+            }
+
+            // Update lastPageviewUrl if this is a pageview event
+            if (eventName === 'pageview') {
+                this.lastPageviewUrl = currentPathname;
+            }
+
             const data = {
                 n: eventName,
                 u: window.location.href,
