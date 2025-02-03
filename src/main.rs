@@ -5,9 +5,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use ipinfo::{IpInfo, IpInfoConfig};
+use maxminddb::geoip2;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
 use tower_http::cors::CorsLayer;
@@ -17,7 +18,7 @@ use tracing::{info, warn, Level};
 #[derive(Clone)]
 struct AppState {
     db: Arc<Connection>,
-    token: String,
+    geoip: Arc<maxminddb::Reader<Vec<u8>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,6 +47,49 @@ struct GeoLocation {
     city: Option<String>,
 }
 
+impl AppState {
+    fn get_location(&self, ip_str: &str) -> GeoLocation {
+        match ip_str.parse() {
+            Ok(ip) => match self.geoip.lookup::<geoip2::City>(ip) {
+                Ok(city) => GeoLocation {
+                    country: city
+                        .country
+                        .and_then(|c| c.names)
+                        .and_then(|n| n.get("en").cloned())
+                        .map(|s| s.to_string()),
+                    region: city
+                        .subdivisions
+                        .and_then(|s| s.get(0).cloned())
+                        .and_then(|sd| sd.names)
+                        .and_then(|n| n.get("en").cloned())
+                        .map(|s| s.to_string()),
+                    city: city
+                        .city
+                        .and_then(|c| c.names)
+                        .and_then(|n| n.get("en").cloned())
+                        .map(|s| s.to_string()),
+                },
+                Err(e) => {
+                    warn!("Failed to lookup IP location: {} {}", ip_str, e);
+                    GeoLocation {
+                        country: None,
+                        region: None,
+                        city: None,
+                    }
+                }
+            },
+            Err(e) => {
+                warn!("Failed to parse IP address: {}", e);
+                GeoLocation {
+                    country: None,
+                    region: None,
+                    city: None,
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize logging
@@ -57,9 +101,17 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting Atomlytics server...");
 
-    // Initialize IPinfo client
-    // You should set your token in an environment variable
-    let token = std::env::var("IPINFO_TOKEN").expect("IPINFO_TOKEN environment variable not set");
+    // Initialize MaxMind database
+    let geoip_path = Path::new("GeoLite2-City.mmdb");
+    if !geoip_path.exists() {
+        println!("Please download the GeoLite2-City.mmdb file from MaxMind and place it in the project root");
+        println!(
+            "You can get it from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data"
+        );
+        std::process::exit(1);
+    }
+
+    let geoip = maxminddb::Reader::open_readfile(geoip_path)?;
 
     // Initialize SQLite database
     let db = Connection::open("analytics.db").await?;
@@ -94,7 +146,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app_state = AppState {
         db: Arc::new(db),
-        token: token,
+        geoip: Arc::new(geoip),
     };
 
     // Create router with routes
@@ -132,29 +184,9 @@ async fn track_pageview(
     let ip_str = addr.ip().to_string();
     pageview.ip_address = Some(ip_str.clone());
 
-    let config = IpInfoConfig {
-        token: Some(state.token.clone()),
-        ..Default::default()
-    };
-
     // Get location from IP if not provided
     if pageview.country.is_none() || pageview.region.is_none() || pageview.city.is_none() {
-        let mut ipinfo = IpInfo::new(config).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let location = match ipinfo.lookup(&ip_str).await {
-            Ok(ip_info) => GeoLocation {
-                country: Some(ip_info.country),
-                region: Some(ip_info.region),
-                city: Some(ip_info.city),
-            },
-            Err(e) => {
-                warn!("Failed to lookup IP location: {}", e);
-                GeoLocation {
-                    country: None,
-                    region: None,
-                    city: None,
-                }
-            }
-        };
+        let location = state.get_location(&ip_str);
         pageview.country = location.country;
         pageview.region = location.region;
         pageview.city = location.city;
