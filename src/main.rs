@@ -296,6 +296,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/event", post(track_event))
+        .route("/script.js", get(serve_script))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
@@ -358,4 +359,14 @@ async fn track_event(
 ) -> Result<StatusCode, StatusCode> {
     let handler = EventHandler::new(state);
     handler.handle_event(addr, headers, event).await
+}
+
+async fn serve_script() -> impl axum::response::IntoResponse {
+    const SCRIPT: &str = include_str!("script.js");
+
+    axum::response::Response::builder()
+        .header("Content-Type", "application/javascript")
+        .header("Cache-Control", "max-age=3600")
+        .body(SCRIPT.to_string())
+        .unwrap()
 }
