@@ -15,6 +15,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as base64, Engine};
 use event_handler::EventHandler;
 use maxminddb::geoip2;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sha2::{Digest, Sha256};
@@ -267,6 +268,97 @@ async fn basic_auth(
     }
 }
 
+// First, let's define a Migration struct and related types
+#[derive(Debug)]
+struct Migration {
+    name: &'static str,
+    version: i32,
+    up: fn(&rusqlite::Connection) -> rusqlite::Result<()>,
+}
+
+impl Migration {
+    fn new(
+        name: &'static str,
+        version: i32,
+        up: fn(&rusqlite::Connection) -> rusqlite::Result<()>,
+    ) -> Self {
+        Self { name, version, up }
+    }
+}
+
+// Create a vector of all migrations
+fn get_migrations() -> Vec<Migration> {
+    vec![
+        Migration::new("Add bounce rate to aggregated metrics", 1, |conn| {
+            conn.execute(
+                "ALTER TABLE statistics ADD COLUMN total_visits INTEGER NOT NULL DEFAULT 0; ALTER TABLE statistics ADD COLUMN total_pageviews INTEGER NOT NULL DEFAULT 0;",
+                [],
+            )?;
+            Ok(())
+        }),
+        // Add new migrations here
+    ]
+}
+
+async fn run_migrations(db: &Connection) -> anyhow::Result<()> {
+    info!("Running database migrations...");
+
+    // Create migrations table and run migrations in a transaction
+    db.call(|conn| {
+        // Create migrations table if it doesn't exist
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS migrations (
+                id INTEGER PRIMARY KEY,
+                version INTEGER NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                executed_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // Get all migrations
+        let migrations = get_migrations();
+
+        // Get already executed migrations
+        let mut stmt = conn.prepare("SELECT version FROM migrations ORDER BY version DESC")?;
+        let executed_versions: Vec<i32> = stmt
+            .query_map([], |row| row.get(0))?
+            .filter_map(Result::ok)
+            .collect();
+
+        // Run each non-executed migration in a transaction
+        for migration in migrations {
+            if !executed_versions.contains(&migration.version) {
+                info!(
+                    "Running migration {} (version {}): {}",
+                    migration.version, migration.name, migration.name
+                );
+
+                conn.execute("BEGIN TRANSACTION", [])?;
+
+                // Run the migration
+                (migration.up)(conn)?;
+
+                // Record the migration
+                conn.execute(
+                    "INSERT INTO migrations (version, name, executed_at) VALUES (?1, ?2, unixepoch())",
+                    params![&migration.version, &migration.name],
+                )?;
+
+                conn.execute("COMMIT", [])?;
+
+                info!("Migration {} completed successfully", migration.version);
+            }
+        }
+
+        Ok(())
+    })
+    .await?;
+
+    info!("All database migrations completed successfully");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize logging
@@ -293,6 +385,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize SQLite database
     let db = Connection::open("db/analytics.db").await?;
+
+    // Run migrations before creating tables
+    run_migrations(&db).await?;
 
     // Create tables if they don't exist
     db.call(|conn| {

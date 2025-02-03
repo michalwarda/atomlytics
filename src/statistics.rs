@@ -26,11 +26,13 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, created_at)
+                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
                      SELECT 
                         'minute' as period_type,
                         (timestamp / 60) * 60 as period_start,
                         COUNT(DISTINCT visitor_id) as unique_visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END) as total_pageviews,
                         strftime('%s', 'now') as created_at
                      FROM events 
                      WHERE timestamp >= ?
@@ -49,11 +51,13 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, created_at)
+                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
                      SELECT 
                         'hour' as period_type,
                         (timestamp / 3600) * 3600 as period_start,
                         COUNT(DISTINCT visitor_id) as unique_visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END) as total_pageviews,
                         strftime('%s', 'now') as created_at
                      FROM events 
                      WHERE timestamp >= ?
@@ -72,11 +76,13 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, created_at)
+                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
                      SELECT 
                         'day' as period_type,
                         (timestamp / 86400) * 86400 as period_start,
                         COUNT(DISTINCT visitor_id) as unique_visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END) as total_pageviews,
                         strftime('%s', 'now') as created_at
                      FROM events 
                      WHERE timestamp >= ?
@@ -111,8 +117,8 @@ impl StatisticsAggregator {
                             ?,
                             ?,
                             COUNT(DISTINCT visitor_id),
-                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id || '_' || timestamp / 1800 ELSE NULL END),
-                            COUNT(CASE WHEN event_type = 'pageview' THEN 1 ELSE NULL END),
+                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END),
+                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END),
                             strftime('%s', 'now')
                         FROM events 
                         WHERE timestamp >= ? AND timestamp <= ?",
@@ -137,8 +143,8 @@ impl StatisticsAggregator {
                 let mut stmt = conn.prepare(
                     "SELECT 
                         COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id || '_' || timestamp / 1800 ELSE NULL END) as total_visits,
-                        COUNT(CASE WHEN event_type = 'pageview' THEN 1 ELSE NULL END) as total_pageviews
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN visitor_id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN visitor_id ELSE NULL END) as total_pageviews
                      FROM events 
                      WHERE timestamp >= ? AND timestamp <= ?"
                 )?;
