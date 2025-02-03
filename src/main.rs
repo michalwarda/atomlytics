@@ -306,7 +306,31 @@ fn get_migrations() -> Vec<Migration> {
             )?;
             Ok(())
         }),
-        // Add new migrations here
+        Migration::new("Add optimal indices", 2, |conn| {
+            // Index for events table - frequently used in aggregation queries
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_visitor_event ON events(visitor_id, event_type)",
+                [],
+            )?;
+
+            // Index for statistics table - used in time series queries
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_statistics_period ON statistics(period_type, period_start)",
+                [],
+            )?;
+
+            // Index for aggregated_metrics table - used in dashboard queries
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_aggregated_metrics_period ON aggregated_metrics(period_name, start_ts, end_ts)",
+                [],
+            )?;
+
+            Ok(())
+        }),
     ]
 }
 
