@@ -223,14 +223,21 @@ async fn basic_auth(
 ) -> Result<Response, StatusCode> {
     let auth_header = headers
         .get("Authorization")
-        .and_then(|header| header.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .and_then(|header| header.to_str().ok());
 
-    if !auth_header.starts_with("Basic ") {
-        return Err(StatusCode::UNAUTHORIZED);
+    // If no auth header is present or it's invalid, return 401 with WWW-Authenticate header
+    if auth_header.is_none() || !auth_header.unwrap().starts_with("Basic ") {
+        return Ok(Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header(
+                "WWW-Authenticate",
+                "Basic realm=\"Please enter your credentials\"",
+            )
+            .body(axum::body::Body::empty())
+            .unwrap());
     }
 
-    let credentials = auth_header["Basic ".len()..].trim().to_string();
+    let credentials = auth_header.unwrap()["Basic ".len()..].trim().to_string();
 
     let decoded = base64
         .decode(credentials)
@@ -248,7 +255,15 @@ async fn basic_auth(
     if username == expected_username && password == expected_password {
         Ok(next.run(request).await)
     } else {
-        Err(StatusCode::UNAUTHORIZED)
+        // Return 401 with WWW-Authenticate header for invalid credentials
+        Ok(Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header(
+                "WWW-Authenticate",
+                "Basic realm=\"Please enter your credentials\"",
+            )
+            .body(axum::body::Body::empty())
+            .unwrap())
     }
 }
 

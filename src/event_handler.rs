@@ -163,6 +163,64 @@ impl EventHandler {
             .await
     }
 
+    async fn check_and_create_visit(
+        &self,
+        visitor_id: &str,
+        timestamp: i64,
+    ) -> Result<(), tokio_rusqlite::Error> {
+        let visitor_id_clone: String = visitor_id.to_string();
+        let visitor_id_for_query = visitor_id_clone.clone();
+        let result = self
+            .state
+            .db
+            .call(move |conn| {
+                let mut stmt =
+                    conn.prepare("SELECT MAX(timestamp) FROM events WHERE visitor_id = ?1")?;
+                let last_timestamp: Option<i64> = stmt
+                    .query_row(params![visitor_id_for_query], |row| row.get(0))
+                    .unwrap_or(None);
+
+                if let Some(last_ts) = last_timestamp {
+                    // If last event was more than 30 minutes ago (1800 seconds)
+                    if timestamp - last_ts > 1800 {
+                        return Ok(true);
+                    }
+                } else {
+                    // No previous events found for this visitor
+                    return Ok(true);
+                }
+                Ok(false)
+            })
+            .await?;
+
+        if result {
+            let visit_event = Event {
+                event_type: "visit".to_string(),
+                page_url: "".to_string(),
+                referrer: None,
+                browser: "".to_string(),
+                operating_system: "".to_string(),
+                device_type: "".to_string(),
+                country: None,
+                region: None,
+                city: None,
+                utm_source: None,
+                utm_medium: None,
+                utm_campaign: None,
+                utm_content: None,
+                utm_term: None,
+                timestamp,
+                visitor_id: Some(visitor_id_clone.to_string()),
+                custom_params: None,
+            };
+
+            self.save_event(&visit_event, None).await?;
+            debug!(visitor_id = %visitor_id_clone, "Created new visit event");
+        }
+
+        Ok(())
+    }
+
     #[instrument(skip(self, headers), fields(ip = %addr.ip(), event_type = %event.event_type))]
     pub async fn handle_event(
         &self,
@@ -190,6 +248,15 @@ impl EventHandler {
         self.process_location(&ip_str, &mut event).await;
 
         event.timestamp = self.get_current_timestamp();
+
+        // Check and create visit event if needed
+        if let Err(e) = self
+            .check_and_create_visit(&visitor_id, event.timestamp)
+            .await
+        {
+            warn!(error = %e, "Failed to check and create visit event");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
 
         let custom_params = self.serialize_custom_params(&event.custom_params);
 
