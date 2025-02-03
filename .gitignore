@@ -1,0 +1,31 @@
+# Rust build directory
+target/
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Rust-specific
+**/*.rs.bk
+*.pdb
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Debug files
+*.log
+
+# Cargo.lock should be committed for binary projects
+# Cargo.lock 
