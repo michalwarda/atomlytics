@@ -1,3 +1,5 @@
+mod event_handler;
+
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
 use axum::{
@@ -6,8 +8,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use event_handler::EventHandler;
 use maxminddb::geoip2;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use serde_json;
 use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -19,6 +24,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn, Level};
 use uaparser::{Parser, UserAgentParser};
+
 #[derive(Clone)]
 struct AppState {
     db: Arc<Connection>,
@@ -51,6 +57,8 @@ struct PageView {
     timestamp: i64,
     #[serde(default)]
     visitor_id: Option<String>,
+    #[serde(default)]
+    custom_params: Option<serde_json::Value>,
 }
 
 #[derive(Debug)]
@@ -232,7 +240,8 @@ async fn main() -> anyhow::Result<()> {
                 utm_content TEXT,
                 utm_term TEXT,
                 timestamp INTEGER NOT NULL,
-                visitor_id TEXT NOT NULL
+                visitor_id TEXT NOT NULL,
+                custom_params TEXT
             )",
             [],
         )
@@ -276,7 +285,7 @@ async fn main() -> anyhow::Result<()> {
     // Create router with routes
     let app = Router::new()
         .route("/health", get(health_check))
-        .route("/collect", post(track_pageview))
+        .route("/event", post(track_event))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(app_state);
@@ -298,90 +307,12 @@ async fn health_check() -> StatusCode {
     StatusCode::OK
 }
 
-async fn track_pageview(
+async fn track_event(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    Json(mut pageview): Json<PageView>,
+    Json(pageview): Json<PageView>,
 ) -> Result<StatusCode, StatusCode> {
-    // Get IP address and User-Agent
-    let ip_str = addr.ip().to_string();
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("unknown");
-
-    // Get referrer from headers
-    pageview.referrer = headers
-        .get("referer")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string());
-
-    // Parse user agent information
-    let ua_info = state.parse_user_agent(user_agent);
-    pageview.browser = ua_info.browser;
-    pageview.operating_system = ua_info.operating_system;
-    pageview.device_type = ua_info.device_type;
-
-    // Extract domain from page_url
-    let domain = url::Url::parse(&pageview.page_url)
-        .map(|u| u.host_str().unwrap_or("unknown").to_string())
-        .unwrap_or_else(|_| "unknown".to_string());
-
-    // Generate visitor ID
-    let visitor_id = state.get_visitor_id(&ip_str, user_agent, &domain).await;
-    pageview.visitor_id = Some(visitor_id);
-
-    // Get location from IP if not provided
-    if pageview.country.is_none() || pageview.region.is_none() || pageview.city.is_none() {
-        let location = state.get_location(&ip_str);
-        pageview.country = location.country;
-        pageview.region = location.region;
-        pageview.city = location.city;
-    }
-
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-
-    pageview.timestamp = timestamp;
-
-    state
-        .db
-        .call(move |conn| {
-            conn.execute(
-                "INSERT INTO events (
-                    event_type, page_url, referrer, browser, operating_system, 
-                    device_type, country, region, city,
-                    utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                    timestamp, visitor_id
-                ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
-                )",
-                (
-                    &pageview.event_type,
-                    &pageview.page_url,
-                    &pageview.referrer,
-                    &pageview.browser,
-                    &pageview.operating_system,
-                    &pageview.device_type,
-                    &pageview.country,
-                    &pageview.region,
-                    &pageview.city,
-                    &pageview.utm_source,
-                    &pageview.utm_medium,
-                    &pageview.utm_campaign,
-                    &pageview.utm_content,
-                    &pageview.utm_term,
-                    pageview.timestamp,
-                    &pageview.visitor_id,
-                ),
-            )
-            .map_err(tokio_rusqlite::Error::from)
-        })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(StatusCode::CREATED)
+    let handler = EventHandler::new(state);
+    handler.handle_event(addr, headers, pageview).await
 }
