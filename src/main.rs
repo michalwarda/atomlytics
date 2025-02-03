@@ -1,4 +1,5 @@
 use axum::extract::ConnectInfo;
+use axum::http::HeaderMap;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -7,26 +8,36 @@ use axum::{
 };
 use maxminddb::geoip2;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
 use tokio_rusqlite::Connection;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn, Level};
-
+use uaparser::{Parser, UserAgentParser};
 #[derive(Clone)]
 struct AppState {
     db: Arc<Connection>,
     geoip: Arc<maxminddb::Reader<Vec<u8>>>,
+    salt: Arc<RwLock<String>>,
+    parser: Arc<UserAgentParser>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PageView {
     page_url: String,
+    event_type: String,
+    #[serde(skip_deserializing)]
     referrer: Option<String>,
+    #[serde(skip_deserializing)]
     browser: String,
+    #[serde(skip_deserializing)]
     operating_system: String,
+    #[serde(skip_deserializing)]
     device_type: String,
     country: Option<String>,
     region: Option<String>,
@@ -36,8 +47,10 @@ struct PageView {
     utm_campaign: Option<String>,
     utm_content: Option<String>,
     utm_term: Option<String>,
+    #[serde(skip_deserializing)]
     timestamp: i64,
-    ip_address: Option<String>,
+    #[serde(default)]
+    visitor_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -45,6 +58,13 @@ struct GeoLocation {
     country: Option<String>,
     region: Option<String>,
     city: Option<String>,
+}
+
+#[derive(Debug)]
+struct UserAgentInfo {
+    browser: String,
+    operating_system: String,
+    device_type: String,
 }
 
 impl AppState {
@@ -88,6 +108,82 @@ impl AppState {
             }
         }
     }
+
+    fn parse_user_agent(&self, user_agent: &str) -> UserAgentInfo {
+        let ua = self.parser.parse(user_agent);
+
+        // Determine device type based on device brand and model
+        let device_type = if ua.device.family.to_lowercase().contains("mobile")
+            || ua.device.family.to_lowercase().contains("phone")
+            || ua.device.family.to_lowercase().contains("android")
+            || ua.device.family.to_lowercase().contains("iphone")
+        {
+            "Mobile"
+        } else if ua.device.family.to_lowercase().contains("tablet")
+            || ua.device.family.to_lowercase().contains("ipad")
+        {
+            "Tablet"
+        } else if ua.device.family.to_lowercase().contains("bot")
+            || ua.device.family.to_lowercase().contains("crawler")
+            || ua.device.family.to_lowercase().contains("spider")
+        {
+            "Bot"
+        } else {
+            "Desktop"
+        };
+
+        UserAgentInfo {
+            browser: format!(
+                "{} {}",
+                ua.user_agent.family,
+                ua.user_agent.major.unwrap_or_default()
+            ),
+            operating_system: format!("{} {}", ua.os.family, ua.os.major.unwrap_or_default()),
+            device_type: device_type.to_string(),
+        }
+    }
+
+    async fn get_visitor_id(&self, ip: &str, user_agent: &str, domain: &str) -> String {
+        let salt = self.salt.read().await;
+        let input = format!("{}{}{}{}", *salt, domain, ip, user_agent);
+        let mut hasher = Sha256::new();
+        hasher.update(input.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    fn get_current_day() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            / 86400 // seconds in a day
+    }
+
+    async fn rotate_salt_if_needed(&self) {
+        let mut salt = self.salt.write().await;
+        let current_day = Self::get_current_day();
+        let salt_day = salt
+            .split('_')
+            .next()
+            .unwrap_or("0")
+            .parse::<i64>()
+            .unwrap_or(0);
+
+        if current_day > salt_day {
+            use rand::Rng;
+            let new_salt = format!(
+                "{}_{}",
+                current_day,
+                rand::thread_rng()
+                    .sample_iter(&rand::distributions::Alphanumeric)
+                    .take(16)
+                    .map(char::from)
+                    .collect::<String>()
+            );
+            *salt = new_salt;
+            info!("Rotated daily salt");
+        }
+    }
 }
 
 #[tokio::main]
@@ -119,8 +215,9 @@ async fn main() -> anyhow::Result<()> {
     // Create tables if they don't exist
     db.call(|conn| {
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS page_views (
+            "CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY,
+                event_type TEXT NOT NULL,
                 page_url TEXT NOT NULL,
                 referrer TEXT,
                 browser TEXT NOT NULL,
@@ -135,8 +232,7 @@ async fn main() -> anyhow::Result<()> {
                 utm_content TEXT,
                 utm_term TEXT,
                 timestamp INTEGER NOT NULL,
-                ip_address TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                visitor_id TEXT NOT NULL
             )",
             [],
         )
@@ -144,10 +240,38 @@ async fn main() -> anyhow::Result<()> {
     })
     .await?;
 
+    // Initialize with a random salt
+    use rand::Rng;
+    let initial_salt = format!(
+        "{}_{}",
+        AppState::get_current_day(),
+        rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect::<String>()
+    );
+
+    // Initialize User Agent Parser
+    let parser =
+        UserAgentParser::from_yaml("regexes.yaml").expect("Failed to initialize user agent parser");
+
     let app_state = AppState {
         db: Arc::new(db),
         geoip: Arc::new(geoip),
+        salt: Arc::new(RwLock::new(initial_salt)),
+        parser: Arc::new(parser),
     };
+
+    // Start salt rotation task
+    let state_clone = app_state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // Check every hour
+        loop {
+            interval.tick().await;
+            state_clone.rotate_salt_if_needed().await;
+        }
+    });
 
     // Create router with routes
     let app = Router::new()
@@ -162,7 +286,6 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("Server listening on http://{}", addr);
 
-    // Use into_make_service_with_connect_info to include the client's IP address
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -178,11 +301,36 @@ async fn health_check() -> StatusCode {
 async fn track_pageview(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(mut pageview): Json<PageView>,
 ) -> Result<StatusCode, StatusCode> {
-    // Get IP address from the connection
+    // Get IP address and User-Agent
     let ip_str = addr.ip().to_string();
-    pageview.ip_address = Some(ip_str.clone());
+    let user_agent = headers
+        .get("user-agent")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("unknown");
+
+    // Get referrer from headers
+    pageview.referrer = headers
+        .get("referer")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Parse user agent information
+    let ua_info = state.parse_user_agent(user_agent);
+    pageview.browser = ua_info.browser;
+    pageview.operating_system = ua_info.operating_system;
+    pageview.device_type = ua_info.device_type;
+
+    // Extract domain from page_url
+    let domain = url::Url::parse(&pageview.page_url)
+        .map(|u| u.host_str().unwrap_or("unknown").to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    // Generate visitor ID
+    let visitor_id = state.get_visitor_id(&ip_str, user_agent, &domain).await;
+    pageview.visitor_id = Some(visitor_id);
 
     // Get location from IP if not provided
     if pageview.country.is_none() || pageview.region.is_none() || pageview.city.is_none() {
@@ -192,19 +340,27 @@ async fn track_pageview(
         pageview.city = location.city;
     }
 
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    pageview.timestamp = timestamp;
+
     state
         .db
         .call(move |conn| {
             conn.execute(
-                "INSERT INTO page_views (
-                    page_url, referrer, browser, operating_system, 
+                "INSERT INTO events (
+                    event_type, page_url, referrer, browser, operating_system, 
                     device_type, country, region, city,
                     utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                    timestamp, ip_address
+                    timestamp, visitor_id
                 ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
                 )",
                 (
+                    &pageview.event_type,
                     &pageview.page_url,
                     &pageview.referrer,
                     &pageview.browser,
@@ -219,7 +375,7 @@ async fn track_pageview(
                     &pageview.utm_content,
                     &pageview.utm_term,
                     pageview.timestamp,
-                    &pageview.ip_address,
+                    &pageview.visitor_id,
                 ),
             )
             .map_err(tokio_rusqlite::Error::from)
