@@ -315,6 +315,24 @@ impl StatisticsAggregator {
                     GROUP BY country, region, city",
                     [&thirty_minutes_ago.timestamp(), &now.timestamp(), &thirty_minutes_ago.timestamp(), &now.timestamp()],
                 )?;
+
+                // Add device metrics
+                conn.execute(
+                    "INSERT OR REPLACE INTO device_aggregated_metrics 
+                    (period_name, start_ts, end_ts, browser, operating_system, device_type,
+                     visitors, visits, pageviews, created_at)
+                    SELECT 
+                        'realtime', ?, ?, 
+                        browser, operating_system, device_type,
+                        COUNT(DISTINCT visitor_id),
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                        strftime('%s', 'now')
+                    FROM events 
+                    WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
+                    GROUP BY browser, operating_system, device_type",
+                    [&thirty_minutes_ago.timestamp(), &now.timestamp(), &thirty_minutes_ago.timestamp(), &now.timestamp()],
+                )?;
                 Ok(())
             })
             .await
