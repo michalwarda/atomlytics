@@ -428,7 +428,7 @@ impl StatisticsAggregator {
 
         let realtime_aggregates = self.get_realtime_aggregates().await?;
 
-        let country_metrics = self.get_country_metrics(&timeframe, &metric.clone()).await?;
+        let country_metrics = self.get_country_metrics(&timeframe, &metric).await?;
 
         Ok(Statistics {
             stats,
@@ -566,14 +566,17 @@ impl StatisticsAggregator {
 
         self.db
             .call(move |conn| {
-                let mut stmt = conn.prepare(
+                let query = format!(
                     "SELECT country, visitors, visits, pageviews
                      FROM country_aggregated_metrics
                      WHERE period_name = ?
-                     ORDER BY ? DESC"
-                )?;
+                     ORDER BY {} DESC",
+                    metric_str
+                );
 
-                let metrics = stmt.query_map(params![period_name, metric_str], |row| {
+                let mut stmt = conn.prepare(&query)?;
+
+                let metrics = stmt.query_map([period_name], |row| {
                     let visitors: i64 = row.get(1)?;
                     let visits: i64 = row.get(2)?;
                     let pageviews: i64 = row.get(3)?;
