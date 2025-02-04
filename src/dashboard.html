@@ -80,7 +80,7 @@
             font-weight: bold;
             color: #333;
         }
-        .countries-table {
+        .location-table {
             width: 300px;
             margin: 20px auto;
             background: white;
@@ -88,11 +88,11 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             overflow: hidden;
         }
-        .countries-table table {
+        .location-table table {
             width: 100%;
             border-collapse: collapse;
         }
-        .countries-table th {
+        .location-table th {
             background: #f5f5f5;
             padding: 12px;
             text-align: left;
@@ -100,12 +100,29 @@
             color: #666;
             border-bottom: 1px solid #ddd;
         }
-        .countries-table td {
+        .location-table td {
             padding: 10px 12px;
             border-bottom: 1px solid #eee;
         }
-        .countries-table tr:last-child td {
+        .location-table tr:last-child td {
             border-bottom: none;
+        }
+        .location-filter {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .location-filter .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .location-filter select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            background: white;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -166,16 +183,28 @@
             <canvas id="statsGraph"></canvas>
         </div>
 
-        <!-- Add countries table -->
-        <div class="countries-table">
+        <!-- Add location grouping selector -->
+        <div class="location-filter">
+            <div class="filter-group">
+                <label for="location-grouping">Location Detail:</label>
+                <select id="location-grouping" onchange="updateFilters()">
+                    <option value="Country" selected>Country</option>
+                    <option value="Region">Region</option>
+                    <option value="City">City</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Add location table -->
+        <div class="location-table">
             <table>
                 <thead>
                     <tr>
-                        <th>Country</th>
+                        <th id="location-grouping-label">Country</th>
                         <th>Count</th>
                     </tr>
                 </thead>
-                <tbody id="countries-data">
+                <tbody id="location-data">
                     <!-- Data will be populated by JavaScript -->
                 </tbody>
             </table>
@@ -188,7 +217,8 @@
             return {
                 metric: params.get('metric') || 'UniqueVisitors',
                 timeframe: params.get('timeframe') || 'Today',
-                granularity: params.get('granularity') || 'Hours'
+                granularity: params.get('granularity') || 'Hours',
+                locationGrouping: params.get('locationGrouping') || 'Country'
             };
         }
 
@@ -196,11 +226,13 @@
             const metric = document.getElementById('metric').value;
             const timeframe = document.getElementById('timeframe').value;
             const granularity = document.getElementById('granularity').value;
+            const locationGrouping = document.getElementById('location-grouping').value;
             
             const params = new URLSearchParams();
             params.set('metric', metric);
             params.set('timeframe', timeframe);
             params.set('granularity', granularity);
+            params.set('locationGrouping', locationGrouping);
             
             const newUrl = `${window.location.pathname}?${params.toString()}`;
             window.history.pushState({}, '', newUrl);
@@ -243,18 +275,22 @@
             document.getElementById('total-visits').textContent = data.aggregates.total_visits;
             document.getElementById('total-pageviews').textContent = data.aggregates.total_pageviews;
             document.getElementById('current-visits').textContent = data.realtime_aggregates.current_visits;
+            document.getElementById('location-grouping-label').textContent = document.getElementById('location-grouping').value;
 
-            // Update countries table
-            const countriesTableBody = document.getElementById('countries-data');
-            countriesTableBody.innerHTML = '';
+            // Update location table
+            const locationTableBody = document.getElementById('location-data');
+            locationTableBody.innerHTML = '';
             
-            if (data.country_metrics) {
-                data.country_metrics
-                    .forEach(({country, visitors, visits, pageviews}) => {
+            if (data.location_metrics) {
+                const locationGrouping = document.getElementById('location-grouping').value;
+
+                data.location_metrics
+                    .forEach(({country, region, city, visitors, visits, pageviews}) => {
                         const row = document.createElement('tr');
                         const metric = document.getElementById('metric').value;
                         let value = visitors; // default to visitors
-                        
+                        let grouping = country;
+
                         // Choose the right metric based on selection
                         switch(metric) {
                             case 'UniqueVisitors':
@@ -267,12 +303,24 @@
                                 value = pageviews;
                                 break;
                         }
+
+                        switch(locationGrouping) {
+                            case 'Country':
+                                grouping = country;
+                                break;
+                            case 'Region':
+                                grouping = region;
+                                break;
+                            case 'City':
+                                grouping = city;
+                                break;
+                        }
                         
                         row.innerHTML = `
-                            <td>${country}</td>
+                            <td>${grouping}</td>
                             <td>${value}</td>
                         `;
-                        countriesTableBody.appendChild(row);
+                        locationTableBody.appendChild(row);
                     });
             }
         }
@@ -283,7 +331,9 @@
             const timeframe = document.getElementById('timeframe').value;
             const granularity = document.getElementById('granularity').value;
             const metric = document.getElementById('metric').value;
-            const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}`);
+            const locationGrouping = document.getElementById('location-grouping').value;
+            
+            const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}`);
             const data = await response.json();
             
             const timestamps = data.stats.map(([timestamp]) => {
@@ -384,6 +434,7 @@
         document.getElementById('metric').value = initialParams.metric;
         document.getElementById('timeframe').value = initialParams.timeframe;
         document.getElementById('granularity').value = initialParams.granularity;
+        document.getElementById('location-grouping').value = initialParams.locationGrouping;
 
         // Initialize filters and data
         updateFilters();

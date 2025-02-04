@@ -15,6 +15,13 @@ pub enum Metric {
     Pageviews,
 }
 
+#[derive(serde::Deserialize, Clone, Copy)]
+pub enum LocationGrouping {
+    Country,
+    Region,
+    City,
+}
+
 impl StatisticsAggregator {
     pub fn new(db: Arc<Connection>) -> Self {
         Self { db }
@@ -87,20 +94,22 @@ impl StatisticsAggregator {
                 )?;
 
                 conn.execute(
-                    "INSERT OR REPLACE INTO country_statistics (
-                        period_type, period_start, country, visitors, visits, pageviews, created_at
+                    "INSERT OR REPLACE INTO location_statistics (
+                        period_type, period_start, country, region, city, visitors, visits, pageviews, created_at
                     )
                     SELECT 
                         ?1 as period_type,
                         (timestamp / ?2) * ?2 as period_start,
                         country,
+                        region,
+                        city,
                         COUNT(DISTINCT visitor_id) as visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
                         strftime('%s', 'now') as created_at
                     FROM events
                     WHERE timestamp >= ?3 AND country IS NOT NULL
-                    GROUP BY period_start, country",
+                    GROUP BY period_start, country, region, city",
                     params![period_type.to_string(), time_division, start_timestamp],
                 )?;
                 Ok(())
@@ -169,22 +178,24 @@ impl StatisticsAggregator {
                         ],
                     )?;
 
-                    // Add country metrics
+                    // Add location metrics
                     conn.execute(
-                        "INSERT OR REPLACE INTO country_aggregated_metrics 
-                        (period_name, start_ts, end_ts, country, visitors, visits, pageviews, created_at)
+                        "INSERT OR REPLACE INTO location_aggregated_metrics 
+                        (period_name, start_ts, end_ts, country, region, city, visitors, visits, pageviews, created_at)
                         SELECT 
                             ?,
                             ?,
                             ?,
                             country,
+                            region,
+                            city,
                             COUNT(DISTINCT visitor_id),
                             COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
                             COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
                             strftime('%s', 'now')
                         FROM events 
                         WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
-                        GROUP BY country",
+                        GROUP BY country, region, city",
                         [
                             period_name,
                             &start_ts.to_string(),
@@ -229,15 +240,20 @@ impl StatisticsAggregator {
                     ],
                 )?;
 
-                // Add country metrics
+                // Add location metrics
                 conn.execute(
-                    "INSERT OR REPLACE INTO country_aggregated_metrics 
-                    (period_name, start_ts, end_ts, country, visitors, visits, pageviews, created_at)
+                    "INSERT OR REPLACE INTO location_aggregated_metrics 
+                    (period_name, start_ts, end_ts, country, region, city, visitors, visits, pageviews, created_at)
                     SELECT 
-                        'realtime', ?, ?, country, COUNT(DISTINCT visitor_id), COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END), strftime('%s', 'now')
+                        'realtime', ?, ?, 
+                        country, region, city,
+                        COUNT(DISTINCT visitor_id),
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                        strftime('%s', 'now')
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
-                    GROUP BY country",
+                    GROUP BY country, region, city",
                     [&thirty_minutes_ago.timestamp(), &now.timestamp(), &thirty_minutes_ago.timestamp(), &now.timestamp()],
                 )?;
                 Ok(())
@@ -276,6 +292,7 @@ impl StatisticsAggregator {
         timeframe: TimeFrame,
         granularity: Granularity,
         metric: Metric,
+        location_grouping: LocationGrouping,
     ) -> Result<Statistics, tokio_rusqlite::Error> {
         let now = Utc::now();
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
@@ -323,13 +340,13 @@ impl StatisticsAggregator {
 
         let realtime_aggregates = self.get_realtime_aggregates().await?;
 
-        let country_metrics = self.get_country_metrics(&timeframe, &metric).await?;
+        let location_metrics = self.get_location_metrics(&timeframe, &metric, location_grouping).await?;
 
         Ok(Statistics {
             stats,
             aggregates,
             realtime_aggregates,
-            country_metrics,
+            location_metrics,
         })
     }
 
@@ -433,11 +450,12 @@ impl StatisticsAggregator {
         .await
     }
 
-    async fn get_country_metrics(
+    async fn get_location_metrics(
         &self,
         timeframe: &TimeFrame,
         metric: &Metric,
-    ) -> Result<Vec<CountryMetrics>, tokio_rusqlite::Error> {
+        grouping: LocationGrouping,
+    ) -> Result<Vec<LocationMetrics>, tokio_rusqlite::Error> {
         let now = Utc::now();
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
@@ -459,24 +477,37 @@ impl StatisticsAggregator {
             TimeFrame::AllTime => (0, now.timestamp(), None),
         };
 
+        let group_by_clause = match grouping {
+            LocationGrouping::Country => "country",
+            LocationGrouping::Region => "country, region",
+            LocationGrouping::City => "country, region, city",
+        };
+
         self.db
             .call(move |conn| {
                 let query = format!(
-                    "SELECT country, visitors, visits, pageviews
-                     FROM country_aggregated_metrics
+                    "SELECT 
+                        country,
+                        region,
+                        city,
+                        SUM(visitors) as visitors,
+                        SUM(visits) as visits,
+                        SUM(pageviews) as pageviews
+                     FROM location_aggregated_metrics
                      WHERE period_name = ?
+                     GROUP BY {}
                      ORDER BY {} DESC",
-                    metric_str
+                    group_by_clause, metric_str
                 );
 
                 let mut stmt = conn.prepare(&query)?;
 
-                let metrics = stmt.query_map([period_name], |row| {
-                    let visitors: i64 = row.get(1)?;
-                    let visits: i64 = row.get(2)?;
-                    let pageviews: i64 = row.get(3)?;
+                // TODO: Handle AllTime
+                let metrics = stmt.query_map([period_name.unwrap_or("")], |row| {
+                    let visitors: i64 = row.get(3)?;
+                    let visits: i64 = row.get(4)?;
+                    let pageviews: i64 = row.get(5)?;
                     
-                    // Only return rows where the selected metric has a non-zero value
                     let value = match metric_str {
                         "visitors" => visitors,
                         "visits" => visits,
@@ -485,10 +516,12 @@ impl StatisticsAggregator {
                     };
                     
                     if value > 0 {
-                        Ok(Some(CountryMetrics {
+                        Ok(Some(LocationMetrics {
                             country: row.get(0)?,
+                            region: row.get(1)?,
+                            city: row.get(2)?,
                             visitors,
-                            visits, 
+                            visits,
                             pageviews,
                         }))
                     } else {
@@ -528,8 +561,10 @@ pub struct AggregateMetrics {
 }
 
 #[derive(serde::Serialize)]
-pub struct CountryMetrics {
+pub struct LocationMetrics {
     pub country: String,
+    pub region: Option<String>,
+    pub city: Option<String>,
     pub visitors: i64,
     pub visits: i64,
     pub pageviews: i64,
@@ -540,5 +575,5 @@ pub struct Statistics {
     stats: Vec<(i64, i64)>,
     aggregates: AggregateMetrics,
     realtime_aggregates: AggregateMetrics,
-    country_metrics: Vec<CountryMetrics>,
+    location_metrics: Vec<LocationMetrics>,
 }

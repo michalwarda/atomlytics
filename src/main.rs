@@ -260,6 +260,7 @@ struct StatisticsParams {
     timeframe: statistics::TimeFrame,
     granularity: statistics::Granularity,
     metric: statistics::Metric,
+    location_grouping: statistics::LocationGrouping,
 }
 
 async fn basic_auth(
@@ -484,6 +485,81 @@ fn get_migrations() -> Vec<Migration> {
                 Ok(())
             },
         ),
+        Migration::new("Add location statistics tables", 9, |conn| {
+            // Create location statistics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS location_statistics (
+                    id INTEGER PRIMARY KEY,
+                    period_type TEXT NOT NULL,
+                    period_start INTEGER NOT NULL,
+                    country TEXT NOT NULL,
+                    region TEXT,
+                    city TEXT,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_type, period_start, country, region, city)
+                )",
+                [],
+            )?;
+
+            // Create location aggregated metrics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS location_aggregated_metrics (
+                    id INTEGER PRIMARY KEY,
+                    period_name TEXT NOT NULL,
+                    start_ts INTEGER NOT NULL,
+                    end_ts INTEGER NOT NULL,
+                    country TEXT NOT NULL,
+                    region TEXT,
+                    city TEXT,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_name, country, region, city)
+                )",
+                [],
+            )?;
+
+            // Add indices for better query performance
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_location_stats_period 
+                 ON location_statistics(period_type, period_start)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_location_metrics_period 
+                 ON location_aggregated_metrics(period_name)",
+                [],
+            )?;
+
+            // Migrate existing data from country tables to location tables
+            conn.execute(
+                "INSERT INTO location_statistics 
+                 SELECT 
+                    id,
+                    period_type,
+                    period_start,
+                    country,
+                    NULL as region,
+                    NULL as city,
+                    visitors,
+                    visits,
+                    pageviews,
+                    created_at
+                 FROM country_statistics",
+                [],
+            )?;
+
+            // Drop old country tables
+            conn.execute("DROP TABLE IF EXISTS country_statistics", [])?;
+            conn.execute("DROP TABLE IF EXISTS country_aggregated_metrics", [])?;
+
+            Ok(())
+        }),
     ]
 }
 
@@ -773,7 +849,12 @@ async fn get_statistics(
 ) -> Result<Json<Statistics>, StatusCode> {
     let aggregator = StatisticsAggregator::new(state.db);
     aggregator
-        .get_filtered_statistics(params.timeframe, params.granularity, params.metric)
+        .get_filtered_statistics(
+            params.timeframe,
+            params.granularity,
+            params.metric,
+            params.location_grouping,
+        )
         .await
         .map(Json)
         .map_err(|e| {
