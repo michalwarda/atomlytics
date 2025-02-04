@@ -301,7 +301,7 @@ impl StatisticsAggregator {
 
     async fn aggregate_active_period_metrics(&self) -> Result<(), tokio_rusqlite::Error> {
         let now = chrono::Utc::now();
-        let thirty_minutes_ago = now - chrono::Duration::minutes(30);
+        let thirty_minutes_ago = (now.timestamp() / 60 * 60) - 60 * 30;
 
         self.db
             .call(move |conn| {
@@ -321,9 +321,9 @@ impl StatisticsAggregator {
                     WHERE timestamp >= ? AND timestamp <= ?",
                     params![
                         "realtime",
-                        &thirty_minutes_ago.timestamp(),
+                        &thirty_minutes_ago,
                         &now.timestamp(),
-                        &thirty_minutes_ago.timestamp(),
+                        &thirty_minutes_ago,
                         &now.timestamp(),
                     ],
                 )?;
@@ -342,7 +342,7 @@ impl StatisticsAggregator {
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
                     GROUP BY country, region, city",
-                    [&thirty_minutes_ago.timestamp(), &now.timestamp(), &thirty_minutes_ago.timestamp(), &now.timestamp()],
+                    [&thirty_minutes_ago, &now.timestamp(), &thirty_minutes_ago, &now.timestamp()],
                 )?;
 
                 // Add device metrics
@@ -360,7 +360,7 @@ impl StatisticsAggregator {
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
                     GROUP BY browser, operating_system, device_type",
-                    [&thirty_minutes_ago.timestamp(), &now.timestamp(), &thirty_minutes_ago.timestamp(), &now.timestamp()],
+                    [&thirty_minutes_ago, &now.timestamp(), &thirty_minutes_ago, &now.timestamp()],
                 )?;
                 Ok(())
             })
