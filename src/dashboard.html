@@ -145,18 +145,30 @@
             const metric = document.getElementById('metric').value;
             const timeframe = document.getElementById('timeframe').value;
             const granularitySelect = document.getElementById('granularity');
+            const granularity = granularitySelect.value;
             
             granularitySelect.innerHTML = '';
+
+            const newOptions = [];
             
             if (timeframe === 'Realtime') {
-                granularitySelect.add(new Option('Minutes', 'Minutes'));
+                newOptions.push(new Option('Minutes', 'Minutes'));
             } else if (timeframe === 'Today' || timeframe === 'Yesterday') {
-                granularitySelect.add(new Option('Minutes', 'Minutes'));
-                granularitySelect.add(new Option('Hours', 'Hours'));
+                newOptions.push(new Option('Minutes', 'Minutes'));
+                newOptions.push(new Option('Hours', 'Hours'));
             } else {
-                granularitySelect.add(new Option('Hours', 'Hours'));
-                granularitySelect.add(new Option('Days', 'Days'));
+                newOptions.push(new Option('Hours', 'Hours'));
+                newOptions.push(new Option('Days', 'Days'));
             }
+
+            for (const option of newOptions) {
+                granularitySelect.add(option);
+            }
+
+            if (newOptions.length > 0 && newOptions.some(option => option.value === granularity)) {
+                granularitySelect.value = granularity;
+            } 
+            
             
             fetchData();
         }
