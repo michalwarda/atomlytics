@@ -46,6 +46,7 @@ impl StatisticsAggregator {
         self.mark_inactive_visits(now).await?;
         self.aggregate_active_stats(now).await?;
         self.aggregate_active_period_metrics(now).await?;
+        self.remove_unused_active_aggregated_metrics(now).await?;
         Ok(())
     }
 
@@ -64,15 +65,22 @@ impl StatisticsAggregator {
         Ok(())
     }
 
+    async fn remove_unused_active_aggregated_metrics(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
+        let thirty_minutes_ago = now - chrono::Duration::minutes(30);
+        let thirty_minutes_ago_ts = thirty_minutes_ago.timestamp();
+
+        self.db.call(move |conn| {
+            conn.execute("DELETE FROM aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
+            Ok(())
+        }).await?;
+        Ok(())
+    }
+
     async fn remove_unused_aggregated_metrics(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
 
-        let thirty_minutes_ago = now - chrono::Duration::minutes(30);
-        let thirty_minutes_ago_ts = thirty_minutes_ago.timestamp();
-
         let periods = vec![
-            ("realtime", thirty_minutes_ago_ts),
             ("today", today_start_ts),
             ("yesterday", today_start_ts - 86400),
             ("last_7_days", today_start_ts - 7 * 86400),
@@ -235,12 +243,12 @@ impl StatisticsAggregator {
                             strftime('%s', 'now')
                         FROM events 
                         WHERE timestamp >= ? AND timestamp <= ?",
-                        [
+                        params![
                             period_name,
-                            &start_ts.to_string(),
-                            &end_ts.to_string(),
-                            &start_ts.to_string(),
-                            &end_ts.to_string(),
+                            &start_ts,
+                            &end_ts,
+                            &start_ts,
+                            &end_ts,
                         ],
                     )?;
 
@@ -262,12 +270,12 @@ impl StatisticsAggregator {
                         FROM events 
                         WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
                         GROUP BY country, region, city",
-                        [
+                        params![
                             period_name,
-                            &start_ts.to_string(),
-                            &end_ts.to_string(),
-                            &start_ts.to_string(),
-                            &end_ts.to_string(),
+                            &start_ts,
+                            &end_ts,
+                            &start_ts,
+                            &end_ts,
                         ],
                     )?;
 
@@ -290,12 +298,12 @@ impl StatisticsAggregator {
                         FROM events 
                         WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
                         GROUP BY browser, operating_system, device_type",
-                        [
+                        params![
                             period_name,
-                            &start_ts.to_string(),
-                            &end_ts.to_string(),
-                            &start_ts.to_string(),
-                            &end_ts.to_string(),
+                            &start_ts,
+                            &end_ts,
+                            &start_ts,
+                            &end_ts,
                         ],
                     )?;
                 }
