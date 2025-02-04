@@ -574,15 +574,31 @@ impl StatisticsAggregator {
                 )?;
 
                 let metrics = stmt.query_map(params![period_name, metric_str], |row| {
-                    Ok(CountryMetrics {
-                        country: row.get(0)?,
-                        visitors: row.get(1)?,
-                        visits: row.get(2)?,
-                        pageviews: row.get(3)?,
-                    })
-                })?;
+                    let visitors: i64 = row.get(1)?;
+                    let visits: i64 = row.get(2)?;
+                    let pageviews: i64 = row.get(3)?;
+                    
+                    // Only return rows where the selected metric has a non-zero value
+                    let value = match metric_str {
+                        "visitors" => visitors,
+                        "visits" => visits,
+                        "pageviews" => pageviews,
+                        _ => 0,
+                    };
+                    
+                    if value > 0 {
+                        Ok(Some(CountryMetrics {
+                            country: row.get(0)?,
+                            visitors,
+                            visits, 
+                            pageviews,
+                        }))
+                    } else {
+                        Ok(None)
+                    }
+                })?.filter_map(|r| r.transpose()).collect::<Result<Vec<_>, _>>()?;
 
-                Ok(metrics.collect::<Result<Vec<_>, _>>()?)
+                Ok(metrics)
             })
             .await
     }
