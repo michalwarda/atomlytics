@@ -690,6 +690,8 @@ impl StatisticsAggregator {
                         SUM(pageviews) as pageviews
                      FROM device_aggregated_metrics
                      WHERE period_name = ?
+                     AND start_ts >= ?
+                     AND end_ts <= ?
                      GROUP BY {}
                      ORDER BY {} DESC",
                     group_by_clause, metric_str
@@ -697,7 +699,7 @@ impl StatisticsAggregator {
 
                 let mut stmt = conn.prepare(&query)?;
 
-                let metrics = stmt.query_map([period_name.unwrap_or("")], |row| {
+                let metrics = stmt.query_map(params![period_name.unwrap_or(""), start_ts, end_ts], |row| {
                     let visitors: i64 = row.get(3)?;
                     let visits: i64 = row.get(4)?;
                     let pageviews: i64 = row.get(5)?;
