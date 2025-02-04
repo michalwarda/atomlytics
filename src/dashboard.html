@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Analytics Dashboard</title>
-    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -19,6 +19,16 @@
         }
         .graph {
             margin-bottom: 30px;
+            position: relative;
+            width: 100%;
+            padding-bottom: 57.14%; /* (4/7 = 0.5714) * 100% */
+        }
+        .graph canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
         }
         h1 {
             color: #333;
@@ -125,7 +135,9 @@
             </div>
         </div>
 
-        <div id="statsGraph" class="graph"></div>
+        <div class="graph">
+            <canvas id="statsGraph"></canvas>
+        </div>
     </div>
 
     <script>
@@ -157,6 +169,8 @@
             document.getElementById('current-visits').textContent = data.realtime_aggregates.current_visits;
         }
 
+        let chart;
+
         async function fetchData() {
             const timeframe = document.getElementById('timeframe').value;
             const granularity = document.getElementById('granularity').value;
@@ -164,53 +178,95 @@
             const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}`);
             const data = await response.json();
             
-            const trace = {
-                x: data.stats.map(([timestamp]) => new Date(timestamp * 1000)),
-                y: data.stats.map(([, visitors]) => visitors),
-                type: 'scatter',
-                mode: 'lines+markers',
-                name: metric,
-                connectgaps: false,
-                line: {
-                    shape: 'hv',  // Creates a stepped line
+            const timestamps = data.stats.map(([timestamp]) => {
+                const date = new Date(timestamp * 1000);
+                switch(granularity) {
+                    case 'Minutes':
+                        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    case 'Hours':
+                        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    case 'Days':
+                        return date.toLocaleDateString();
                 }
-            };
-            
-            const title = `${metric} (${timeframe})`;
-            const xaxisTitle = granularity === 'Days' ? 'Date' : 'Time';
-            
-            let xaxisFormat;
-            switch(granularity) {
-                case 'Minutes':
-                    xaxisFormat = '%H:%M';
-                    break;
-                case 'Hours':
-                    xaxisFormat = '%H:00';
-                    break;
-                case 'Days':
-                    xaxisFormat = '%Y-%m-%d';
-                    break;
-            }
-            
-            Plotly.newPlot('statsGraph', [trace], {
-                title: title,
-                xaxis: { 
-                    title: xaxisTitle,
-                    tickformat: xaxisFormat,
-                    showgrid: true
-                },
-                yaxis: { 
-                    title: metric,
-                    rangemode: 'nonnegative',  // Prevents negative values
-                    showgrid: true
-                },
-                showlegend: false,
-                hovermode: 'x unified',
-                hoverlabel: {
-                    namelength: -1  // Show full label text
-                },
-                margin: { t: 50, r: 20, l: 50, b: 50 }
             });
+
+            const values = data.stats.map(([, value]) => value);
+
+            if (!chart) {
+                // Initialize chart if it doesn't exist
+                const ctx = document.getElementById('statsGraph').getContext('2d');
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: timestamps,
+                        datasets: [{
+                            label: metric,
+                            data: values,
+                            tension: 0.1,
+                            fill: true,
+                            stepped: false,
+                            cubicInterpolationMode: 'monotone',
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            borderColor: 'rgba(33, 150, 243, 0.3)',
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        aspectRatio: 7/4,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: `${metric} (${timeframe})`
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                            }
+                        },
+                        interaction: {
+                            intersect: false,
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: granularity === 'Days' ? 'Date' : 'Time'
+                                },
+                                grid: {
+                                    display: true
+                                }
+                            },
+                            y: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: metric
+                                },
+                                beginAtZero: true,
+                                grid: {
+                                    display: true
+                                },
+                                suggestedMax: Math.max(...values) * 1.1,
+                                ticks: {
+                                    padding: 10
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Update existing chart
+                chart.data.labels = timestamps;
+                chart.data.datasets[0].data = values;
+                chart.data.datasets[0].label = metric;
+                chart.options.plugins.title.text = `${metric} (${timeframe})`;
+                chart.options.scales.x.title.text = granularity === 'Days' ? 'Date' : 'Time';
+                chart.options.scales.y.title.text = metric;
+                chart.options.scales.y.suggestedMax = Math.max(...values) * 1.1;
+                chart.update();
+            }
 
             updateStatistics(data);
         }

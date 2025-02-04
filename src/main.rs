@@ -76,6 +76,8 @@ struct Event {
     visitor_id: Option<String>,
     #[serde(skip_deserializing)]
     is_active: i64,
+    #[serde(skip_deserializing)]
+    last_activity_at: i64,
 }
 
 #[derive(Debug)]

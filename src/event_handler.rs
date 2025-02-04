@@ -108,6 +108,7 @@ impl EventHandler {
         let timestamp = event.timestamp;
         let visitor_id = event.visitor_id.clone();
         let is_active = event.is_active;
+        let last_activity_at = event.last_activity_at;
         debug!(
             event_type = %event_type,
             page_url = %page_url,
@@ -123,9 +124,9 @@ impl EventHandler {
                         event_type, page_url, referrer, browser, operating_system, 
                         device_type, country, region, city,
                         utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                        timestamp, visitor_id, custom_params, is_active
+                        timestamp, visitor_id, custom_params, is_active, last_activity_at
                     ) VALUES (
-                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
                     )",
                     params![
                         &event_type,
@@ -146,6 +147,7 @@ impl EventHandler {
                         &visitor_id,
                         &custom_params,
                         &is_active,
+                        &last_activity_at,
                     ],
                 )
                 .map(|_| {
@@ -188,6 +190,7 @@ impl EventHandler {
                 match result {
                     Ok((visit_id, last_ts)) => {
                         if timestamp - last_ts <= 1800 {
+                            println!("Visit exists and is active, updating last_activity_at");
                             // Visit exists and is active, update last_activity_at
                             conn.execute(
                                 "UPDATE events SET last_activity_at = ?1 WHERE id = ?2",
@@ -195,12 +198,14 @@ impl EventHandler {
                             )?;
                             Ok(false)
                         } else {
+                            println!("Visit exists but expired");
                             // Visit exists but expired
                             Ok(true)
                         }
                     }
                     Err(_) => {
                         // No visit found
+                        println!("No visit found");
                         Ok(true)
                     }
                 }
@@ -227,6 +232,7 @@ impl EventHandler {
                 visitor_id: Some(visitor_id_clone.to_string()),
                 custom_params: None,
                 is_active: 1,
+                last_activity_at: timestamp,
             };
 
             self.save_event(&visit_event, None).await?;
