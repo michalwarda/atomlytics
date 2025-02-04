@@ -46,6 +46,35 @@ impl StatisticsAggregator {
         self.aggregate_hourly_stats().await?;
         self.aggregate_daily_stats().await?;
         self.aggregate_period_metrics().await?;
+        self.remove_unused_aggregated_metrics().await?;
+        Ok(())
+    }
+
+    async fn remove_unused_aggregated_metrics(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let today_start_ts = today_start.and_utc().timestamp();
+
+        let thirty_minutes_ago = now - chrono::Duration::minutes(30);
+        let thirty_minutes_ago_ts = thirty_minutes_ago.timestamp();
+
+        let periods = vec![
+            ("realtime", thirty_minutes_ago_ts),
+            ("today", today_start_ts),
+            ("yesterday", today_start_ts - 86400),
+            ("last_7_days", today_start_ts - 7 * 86400),
+            ("last_30_days", today_start_ts - 30 * 86400),
+        ];
+
+        for (period_name, start_ts) in periods {
+            self.db.call(move |conn| {
+                conn.execute("DELETE FROM aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
+                conn.execute("DELETE FROM location_aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
+                conn.execute("DELETE FROM device_aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
+                Ok(())
+            }).await?;
+        }
+
         Ok(())
     }
 
