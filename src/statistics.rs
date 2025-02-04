@@ -71,6 +71,8 @@ impl StatisticsAggregator {
 
         self.db.call(move |conn| {
             conn.execute("DELETE FROM aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
+            conn.execute("DELETE FROM location_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
+            conn.execute("DELETE FROM device_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
             Ok(())
         }).await?;
         Ok(())
