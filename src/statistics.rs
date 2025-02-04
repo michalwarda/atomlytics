@@ -81,6 +81,25 @@ impl StatisticsAggregator {
                     )",
                     [],
                 )?;
+
+                // Add country statistics
+                conn.execute(
+                    "INSERT OR REPLACE INTO country_statistics (
+                        period_type, period_start, country, visitors, visits, pageviews, created_at
+                    )
+                    SELECT 
+                        'realtime' as period_type,
+                        (timestamp / 60) * 60 as period_start,
+                        country,
+                        COUNT(DISTINCT visitor_id) as visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        strftime('%s', 'now') as created_at
+                    FROM events
+                    WHERE timestamp >= ? AND country IS NOT NULL
+                    GROUP BY period_start, country",
+                    [thirty_minutes_ago.timestamp()],
+                )?;
                 Ok(())
             })
             .await
@@ -104,6 +123,25 @@ impl StatisticsAggregator {
                      FROM events 
                      WHERE timestamp >= ?
                      GROUP BY period_start",
+                    [five_minutes_ago.timestamp()],
+                )?;
+
+                // Add country statistics
+                conn.execute(
+                    "INSERT OR REPLACE INTO country_statistics (
+                        period_type, period_start, country, visitors, visits, pageviews, created_at
+                    )
+                    SELECT 
+                        'minute' as period_type,
+                        (timestamp / 60) * 60 as period_start,
+                        country,
+                        COUNT(DISTINCT visitor_id) as visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        strftime('%s', 'now') as created_at
+                    FROM events
+                    WHERE timestamp >= ? AND country IS NOT NULL
+                    GROUP BY period_start, country",
                     [five_minutes_ago.timestamp()],
                 )?;
                 Ok(())
@@ -131,6 +169,25 @@ impl StatisticsAggregator {
                      GROUP BY period_start",
                     [day_ago.timestamp()],
                 )?;
+
+                // Add country statistics
+                conn.execute(
+                    "INSERT OR REPLACE INTO country_statistics (
+                        period_type, period_start, country, visitors, visits, pageviews, created_at
+                    )
+                    SELECT 
+                        'hour' as period_type,
+                        (timestamp / 3600) * 3600 as period_start,
+                        country,
+                        COUNT(DISTINCT visitor_id) as visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        strftime('%s', 'now') as created_at
+                    FROM events
+                    WHERE timestamp >= ? AND country IS NOT NULL
+                    GROUP BY period_start, country",
+                    [day_ago.timestamp()],
+                )?;
                 Ok(())
             })
             .await
@@ -154,6 +211,25 @@ impl StatisticsAggregator {
                      FROM events 
                      WHERE timestamp >= ?
                      GROUP BY period_start",
+                    [month_ago.timestamp()],
+                )?;
+
+                // Add country statistics
+                conn.execute(
+                    "INSERT OR REPLACE INTO country_statistics (
+                        period_type, period_start, country, visitors, visits, pageviews, created_at
+                    )
+                    SELECT 
+                        'day' as period_type,
+                        (timestamp / 86400) * 86400 as period_start,
+                        country,
+                        COUNT(DISTINCT visitor_id) as visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        strftime('%s', 'now') as created_at
+                    FROM events 
+                    WHERE timestamp >= ? AND country IS NOT NULL
+                    GROUP BY period_start, country",
                     [month_ago.timestamp()],
                 )?;
                 Ok(())
@@ -197,6 +273,31 @@ impl StatisticsAggregator {
                             &end_ts.to_string(),
                         ],
                     )?;
+
+                    // Add country metrics
+                    conn.execute(
+                        "INSERT OR REPLACE INTO country_aggregated_metrics 
+                        (period_name, start_ts, end_ts, country, visitors, visits, pageviews, created_at)
+                        SELECT 
+                            ?,
+                            ?,
+                            ?,
+                            country,
+                            COUNT(DISTINCT visitor_id),
+                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                            strftime('%s', 'now')
+                        FROM events 
+                        WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
+                        GROUP BY country",
+                        [
+                            period_name,
+                            &start_ts.to_string(),
+                            &end_ts.to_string(),
+                            &start_ts.to_string(),
+                            &end_ts.to_string(),
+                        ],
+                    )?;
                 }
 
                 Ok(())
@@ -212,28 +313,41 @@ impl StatisticsAggregator {
             .call(move |conn| {
                 conn.execute(
                     "INSERT OR REPLACE INTO aggregated_metrics 
-                (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, current_visits, created_at)
-                SELECT 
-                    ?,
-                    ?,
-                    ?,
-                    COUNT(DISTINCT visitor_id),
-                    COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                    COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                    COUNT(DISTINCT CASE WHEN event_type = 'visit' AND is_active = 1 THEN id ELSE NULL END),
-                    strftime('%s', 'now')
-                FROM events 
-                WHERE timestamp >= ? AND timestamp <= ?",
-                params![
-                    "realtime",
-                    &thirty_minutes_ago.timestamp(),
-                    &now.timestamp(),
-                    &thirty_minutes_ago.timestamp(),
-                    &now.timestamp(),
-                ],
-            )?;
-            Ok(())
-        }).await
+                    (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, current_visits, created_at)
+                    SELECT 
+                        ?,
+                        ?,
+                        ?,
+                        COUNT(DISTINCT visitor_id),
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' AND is_active = 1 THEN id ELSE NULL END),
+                        strftime('%s', 'now')
+                    FROM events 
+                    WHERE timestamp >= ? AND timestamp <= ?",
+                    params![
+                        "realtime",
+                        &thirty_minutes_ago.timestamp(),
+                        &now.timestamp(),
+                        &thirty_minutes_ago.timestamp(),
+                        &now.timestamp(),
+                    ],
+                )?;
+
+                // Add country metrics
+                conn.execute(
+                    "INSERT OR REPLACE INTO country_aggregated_metrics 
+                    (period_name, start_ts, end_ts, country, visitors, visits, pageviews, created_at)
+                    SELECT 
+                        'realtime', ?, ?, country, COUNT(DISTINCT visitor_id), COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END), strftime('%s', 'now')
+                    FROM events 
+                    WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
+                    GROUP BY country",
+                    [&thirty_minutes_ago.timestamp(), &now.timestamp(), &thirty_minutes_ago.timestamp(), &now.timestamp()],
+                )?;
+                Ok(())
+            })
+            .await
     }
 
     async fn calculate_aggregates(&self, start_ts: i64, end_ts: i64) -> Result<AggregateMetrics, tokio_rusqlite::Error> {
@@ -314,7 +428,14 @@ impl StatisticsAggregator {
 
         let realtime_aggregates = self.get_realtime_aggregates().await?;
 
-        Ok(Statistics { stats, aggregates, realtime_aggregates })
+        let country_metrics = self.get_country_metrics(&timeframe).await?;
+
+        Ok(Statistics {
+            stats,
+            aggregates,
+            realtime_aggregates,
+            country_metrics,
+        })
     }
 
     async fn get_time_series_data(
@@ -416,6 +537,48 @@ impl StatisticsAggregator {
             })
         .await
     }
+
+    async fn get_country_metrics(
+        &self,
+        timeframe: &TimeFrame,
+    ) -> Result<Vec<CountryMetrics>, tokio_rusqlite::Error> {
+        let now = Utc::now();
+        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let today_start_ts = today_start.and_utc().timestamp();
+        let today_end = today_start + chrono::Duration::days(1);
+        let today_end_ts = today_end.and_utc().timestamp();
+
+        let (start_ts, end_ts, period_name) = match timeframe {
+            TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
+            TimeFrame::Today => (today_start_ts, today_end_ts, Some("today")),
+            TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts, Some("yesterday")),
+            TimeFrame::Last7Days => (now.timestamp() - 7 * 86400, now.timestamp(), Some("last_7_days")),
+            TimeFrame::Last30Days => (now.timestamp() - 30 * 86400, now.timestamp(), Some("last_30_days")),
+            TimeFrame::AllTime => (0, now.timestamp(), None),
+        };
+
+        self.db
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT country, visitors, visits, pageviews
+                     FROM country_aggregated_metrics
+                     WHERE period_name = ?
+                     ORDER BY visitors DESC"
+                )?;
+
+                let metrics = stmt.query_map([period_name], |row| {
+                    Ok(CountryMetrics {
+                        country: row.get(0)?,
+                        visitors: row.get(1)?,
+                        visits: row.get(2)?,
+                        pageviews: row.get(3)?,
+                    })
+                })?;
+
+                Ok(metrics.collect::<Result<Vec<_>, _>>()?)
+            })
+            .await
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -444,8 +607,17 @@ pub struct AggregateMetrics {
 }
 
 #[derive(serde::Serialize)]
+pub struct CountryMetrics {
+    pub country: String,
+    pub visitors: i64,
+    pub visits: i64,
+    pub pageviews: i64,
+}
+
+#[derive(serde::Serialize)]
 pub struct Statistics {
     stats: Vec<(i64, i64)>,
     aggregates: AggregateMetrics,
     realtime_aggregates: AggregateMetrics,
+    country_metrics: Vec<CountryMetrics>,
 }

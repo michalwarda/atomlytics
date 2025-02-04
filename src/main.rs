@@ -403,6 +403,87 @@ fn get_migrations() -> Vec<Migration> {
             )?;
             Ok(())
         }),
+        Migration::new("Add country statistics tables", 7, |conn| {
+            // Create country statistics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS country_statistics (
+                    id INTEGER PRIMARY KEY,
+                    period_type TEXT NOT NULL,
+                    period_start INTEGER NOT NULL,
+                    country TEXT NOT NULL,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_type, period_start, country)
+                )",
+                [],
+            )?;
+
+            // Create country aggregated metrics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS country_aggregated_metrics (
+                    id INTEGER PRIMARY KEY,
+                    period_name TEXT NOT NULL,
+                    start_ts INTEGER NOT NULL,
+                    end_ts INTEGER NOT NULL,
+                    country TEXT NOT NULL,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_name, country)
+                )",
+                [],
+            )?;
+
+            // Add indices for better query performance
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_country_stats_period 
+                 ON country_statistics(period_type, period_start)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_country_metrics_period 
+                 ON country_aggregated_metrics(period_name)",
+                [],
+            )?;
+
+            Ok(())
+        }),
+        Migration::new(
+            "Add default values to events country, region, city",
+            8,
+            |conn| {
+                conn.execute(
+                    "ALTER TABLE events RENAME COLUMN country TO country_old",
+                    [],
+                )?;
+                conn.execute("ALTER TABLE events RENAME COLUMN region TO region_old", [])?;
+                conn.execute("ALTER TABLE events RENAME COLUMN city TO city_old", [])?;
+                conn.execute(
+                    "ALTER TABLE events ADD COLUMN country TEXT DEFAULT 'Unknown'",
+                    [],
+                )?;
+                conn.execute(
+                    "ALTER TABLE events ADD COLUMN region TEXT DEFAULT 'Unknown'",
+                    [],
+                )?;
+                conn.execute(
+                    "ALTER TABLE events ADD COLUMN city TEXT DEFAULT 'Unknown'",
+                    [],
+                )?;
+                conn.execute(
+                    "UPDATE events SET country = COALESCE(country_old, 'Unknown'), region = COALESCE(region_old, 'Unknown'), city = COALESCE(city_old, 'Unknown')",
+                    [],
+                )?;
+                conn.execute("ALTER TABLE events DROP COLUMN country_old", [])?;
+                conn.execute("ALTER TABLE events DROP COLUMN region_old", [])?;
+                conn.execute("ALTER TABLE events DROP COLUMN city_old", [])?;
+                Ok(())
+            },
+        ),
     ]
 }
 
