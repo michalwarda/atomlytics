@@ -22,6 +22,13 @@ pub enum LocationGrouping {
     City,
 }
 
+#[derive(serde::Deserialize, Clone, Copy)]
+pub enum DeviceGrouping {
+    Browser,
+    OperatingSystem,
+    DeviceType,
+}
+
 impl StatisticsAggregator {
     pub fn new(db: Arc<Connection>) -> Self {
         Self { db }
@@ -112,6 +119,28 @@ impl StatisticsAggregator {
                     GROUP BY period_start, country, region, city",
                     params![period_type.to_string(), time_division, start_timestamp],
                 )?;
+
+                // Add device statistics
+                conn.execute(
+                    "INSERT OR REPLACE INTO device_statistics (
+                        period_type, period_start, browser, operating_system, device_type,
+                        visitors, visits, pageviews, created_at
+                    )
+                    SELECT 
+                        ?1 as period_type,
+                        (timestamp / ?2) * ?2 as period_start,
+                        browser,
+                        operating_system,
+                        device_type,
+                        COUNT(DISTINCT visitor_id) as visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        strftime('%s', 'now') as created_at
+                    FROM events
+                    WHERE timestamp >= ?3 AND browser IS NOT NULL
+                    GROUP BY period_start, browser, operating_system, device_type",
+                    params![period_type.to_string(), time_division, start_timestamp],
+                )?;
                 Ok(())
             })
             .await
@@ -145,12 +174,14 @@ impl StatisticsAggregator {
         let now = chrono::Utc::now();
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
+        let today_end = today_start + chrono::Duration::days(1);
+        let today_end_ts = today_end.and_utc().timestamp();
 
         let periods = vec![
-            ("today", today_start_ts, now.timestamp()),
+            ("today", today_start_ts, today_end_ts),
             ("yesterday", today_start_ts - 86400, today_start_ts),
-            ("last_7_days", now.timestamp() - 7 * 86400, now.timestamp()),
-            ("last_30_days", now.timestamp() - 30 * 86400, now.timestamp()),
+            ("last_7_days", today_start_ts - 7 * 86400, today_start_ts),
+            ("last_30_days", today_start_ts - 30 * 86400, today_start_ts),
         ];
 
         self.db
@@ -196,6 +227,34 @@ impl StatisticsAggregator {
                         FROM events 
                         WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
                         GROUP BY country, region, city",
+                        [
+                            period_name,
+                            &start_ts.to_string(),
+                            &end_ts.to_string(),
+                            &start_ts.to_string(),
+                            &end_ts.to_string(),
+                        ],
+                    )?;
+
+                    // Add device metrics
+                    conn.execute(
+                        "INSERT OR REPLACE INTO device_aggregated_metrics 
+                        (period_name, start_ts, end_ts, browser, operating_system, device_type,
+                         visitors, visits, pageviews, created_at)
+                        SELECT 
+                            ?,
+                            ?,
+                            ?,
+                            browser,
+                            operating_system,
+                            device_type,
+                            COUNT(DISTINCT visitor_id),
+                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                            strftime('%s', 'now')
+                        FROM events 
+                        WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
+                        GROUP BY browser, operating_system, device_type",
                         [
                             period_name,
                             &start_ts.to_string(),
@@ -293,6 +352,7 @@ impl StatisticsAggregator {
         granularity: Granularity,
         metric: Metric,
         location_grouping: LocationGrouping,
+        device_grouping: DeviceGrouping,
     ) -> Result<Statistics, tokio_rusqlite::Error> {
         let now = Utc::now();
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
@@ -342,11 +402,14 @@ impl StatisticsAggregator {
 
         let location_metrics = self.get_location_metrics(&timeframe, &metric, location_grouping).await?;
 
+        let device_metrics = self.get_device_metrics(&timeframe, &metric, device_grouping).await?;
+
         Ok(Statistics {
             stats,
             aggregates,
             realtime_aggregates,
             location_metrics,
+            device_metrics,
         })
     }
 
@@ -533,6 +596,89 @@ impl StatisticsAggregator {
             })
             .await
     }
+
+    async fn get_device_metrics(
+        &self,
+        timeframe: &TimeFrame,
+        metric: &Metric,
+        grouping: DeviceGrouping,
+    ) -> Result<Vec<DeviceMetrics>, tokio_rusqlite::Error> {
+        let now = Utc::now();
+        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let today_start_ts = today_start.and_utc().timestamp();
+        let today_end = today_start + chrono::Duration::days(1);
+        let today_end_ts = today_end.and_utc().timestamp();
+
+        let metric_str = match metric {
+            Metric::UniqueVisitors => "visitors",
+            Metric::Visits => "visits",
+            Metric::Pageviews => "pageviews",
+        };
+
+        let (start_ts, end_ts, period_name) = match timeframe {
+            TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
+            TimeFrame::Today => (today_start_ts, today_end_ts, Some("today")),
+            TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts, Some("yesterday")),
+            TimeFrame::Last7Days => (now.timestamp() - 7 * 86400, now.timestamp(), Some("last_7_days")),
+            TimeFrame::Last30Days => (now.timestamp() - 30 * 86400, now.timestamp(), Some("last_30_days")),
+            TimeFrame::AllTime => (0, now.timestamp(), None),
+        };
+
+        let group_by_clause = match grouping {
+            DeviceGrouping::Browser => "browser",
+            DeviceGrouping::OperatingSystem => "operating_system",
+            DeviceGrouping::DeviceType => "device_type",
+        };
+
+        self.db
+            .call(move |conn| {
+                let query = format!(
+                    "SELECT 
+                        browser,
+                        operating_system,
+                        device_type,
+                        SUM(visitors) as visitors,
+                        SUM(visits) as visits,
+                        SUM(pageviews) as pageviews
+                     FROM device_aggregated_metrics
+                     WHERE period_name = ?
+                     GROUP BY {}
+                     ORDER BY {} DESC",
+                    group_by_clause, metric_str
+                );
+
+                let mut stmt = conn.prepare(&query)?;
+
+                let metrics = stmt.query_map([period_name.unwrap_or("")], |row| {
+                    let visitors: i64 = row.get(3)?;
+                    let visits: i64 = row.get(4)?;
+                    let pageviews: i64 = row.get(5)?;
+                    
+                    let value = match metric_str {
+                        "visitors" => visitors,
+                        "visits" => visits,
+                        "pageviews" => pageviews,
+                        _ => 0,
+                    };
+                    
+                    if value > 0 {
+                        Ok(Some(DeviceMetrics {
+                            browser: row.get(0)?,
+                            operating_system: row.get(1)?,
+                            device_type: row.get(2)?,
+                            visitors,
+                            visits,
+                            pageviews,
+                        }))
+                    } else {
+                        Ok(None)
+                    }
+                })?.filter_map(|r| r.transpose()).collect::<Result<Vec<_>, _>>()?;
+
+                Ok(metrics)
+            })
+            .await
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -571,9 +717,20 @@ pub struct LocationMetrics {
 }
 
 #[derive(serde::Serialize)]
+pub struct DeviceMetrics {
+    pub browser: String,
+    pub operating_system: String,
+    pub device_type: String,
+    pub visitors: i64,
+    pub visits: i64,
+    pub pageviews: i64,
+}
+
+#[derive(serde::Serialize)]
 pub struct Statistics {
     stats: Vec<(i64, i64)>,
     aggregates: AggregateMetrics,
     realtime_aggregates: AggregateMetrics,
     location_metrics: Vec<LocationMetrics>,
+    device_metrics: Vec<DeviceMetrics>,
 }

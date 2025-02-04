@@ -261,6 +261,7 @@ struct StatisticsParams {
     granularity: statistics::Granularity,
     metric: statistics::Metric,
     location_grouping: statistics::LocationGrouping,
+    device_grouping: statistics::DeviceGrouping,
 }
 
 async fn basic_auth(
@@ -560,6 +561,59 @@ fn get_migrations() -> Vec<Migration> {
 
             Ok(())
         }),
+        Migration::new("Add device statistics tables", 10, |conn| {
+            // Create device statistics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS device_statistics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_type TEXT NOT NULL,
+                    period_start INTEGER NOT NULL,
+                    browser TEXT NOT NULL,
+                    operating_system TEXT NOT NULL, 
+                    device_type TEXT NOT NULL,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_type, period_start, browser, operating_system, device_type)
+                )",
+                [],
+            )?;
+
+            // Create device aggregated metrics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS device_aggregated_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_name TEXT NOT NULL,
+                    start_ts INTEGER NOT NULL,
+                    end_ts INTEGER NOT NULL,
+                    browser TEXT NOT NULL,
+                    operating_system TEXT NOT NULL,
+                    device_type TEXT NOT NULL,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_name, start_ts, end_ts, browser, operating_system, device_type)
+                )",
+                [],
+            )?;
+
+            // Add indices for better query performance
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_device_stats_period 
+                 ON device_statistics(period_type, period_start)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_device_metrics_period 
+                 ON device_aggregated_metrics(period_name)",
+                [],
+            )?;
+
+            Ok(())
+        }),
     ]
 }
 
@@ -854,6 +908,7 @@ async fn get_statistics(
             params.granularity,
             params.metric,
             params.location_grouping,
+            params.device_grouping,
         )
         .await
         .map(Json)
