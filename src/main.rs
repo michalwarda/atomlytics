@@ -49,6 +49,8 @@ struct Event {
     #[serde(skip_deserializing)]
     referrer: Option<String>,
     #[serde(skip_deserializing)]
+    source: Option<String>,
+    #[serde(skip_deserializing)]
     browser: String,
     #[serde(skip_deserializing)]
     operating_system: String,
@@ -262,6 +264,7 @@ struct StatisticsParams {
     metric: statistics::Metric,
     location_grouping: statistics::LocationGrouping,
     device_grouping: statistics::DeviceGrouping,
+    source_grouping: statistics::SourceGrouping,
 }
 
 async fn basic_auth(
@@ -614,6 +617,70 @@ fn get_migrations() -> Vec<Migration> {
 
             Ok(())
         }),
+        Migration::new("Add source statistics tables", 11, |conn| {
+            // Create source statistics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS source_statistics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_type TEXT NOT NULL,
+                    period_start INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    referrer TEXT,
+                    utm_source TEXT,
+                    utm_medium TEXT,
+                    utm_campaign TEXT,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_type, period_start, source, referrer, utm_source, utm_medium, utm_campaign)
+                )",
+                [],
+            )?;
+
+            // Create source aggregated metrics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS source_aggregated_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_name TEXT NOT NULL,
+                    start_ts INTEGER NOT NULL,
+                    end_ts INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    referrer TEXT,
+                    utm_source TEXT,
+                    utm_medium TEXT,
+                    utm_campaign TEXT,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_name, start_ts, end_ts, source, referrer, utm_source, utm_medium, utm_campaign)
+                )",
+                [],
+            )?;
+
+            // Add indices for better query performance
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_source_statistics_period 
+                 ON source_statistics(period_type, period_start)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_source_aggregated_metrics_period 
+                 ON source_aggregated_metrics(period_name, start_ts, end_ts)",
+                [],
+            )?;
+
+            Ok(())
+        }),
+        Migration::new("Add source column to events table", 12, |conn| {
+            conn.execute(
+                "ALTER TABLE events ADD COLUMN source TEXT DEFAULT 'Direct'",
+                [],
+            )?;
+            Ok(())
+        }),
     ]
 }
 
@@ -909,6 +976,7 @@ async fn get_statistics(
             params.metric,
             params.location_grouping,
             params.device_grouping,
+            params.source_grouping,
         )
         .await
         .map(Json)

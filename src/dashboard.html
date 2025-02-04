@@ -198,6 +198,14 @@
                     <option value="DeviceType">Device Type</option>
                 </select>
             </div>
+            <div class="filter-group">
+                <label for="source-grouping">Source Detail:</label>
+                <select id="source-grouping" onchange="updateFilters()">
+                    <option value="Source" selected>Source</option>
+                    <option value="Referrer">Referrer</option>
+                    <option value="Campaign">Campaign</option>
+                </select>
+            </div>
         </div>
 
         <div class="tables-container">
@@ -228,6 +236,20 @@
                     </tbody>
                 </table>
             </div>
+
+            <div class="location-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th id="source-grouping-label">Source</th>
+                            <th>Count</th>
+                        </tr>
+                    </thead>
+                    <tbody id="source-data">
+                        <!-- Data will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -239,7 +261,8 @@
                 timeframe: params.get('timeframe') || 'Today',
                 granularity: params.get('granularity') || 'Hours',
                 locationGrouping: params.get('locationGrouping') || 'Country',
-                deviceGrouping: params.get('deviceGrouping') || 'Browser'
+                deviceGrouping: params.get('deviceGrouping') || 'Browser',
+                sourceGrouping: params.get('sourceGrouping') || 'Source'
             };
         }
 
@@ -249,6 +272,7 @@
             const granularity = document.getElementById('granularity').value;
             const locationGrouping = document.getElementById('location-grouping').value;
             const deviceGrouping = document.getElementById('device-grouping').value;
+            const sourceGrouping = document.getElementById('source-grouping').value;
             
             const params = new URLSearchParams();
             params.set('metric', metric);
@@ -256,6 +280,7 @@
             params.set('granularity', granularity);
             params.set('locationGrouping', locationGrouping);
             params.set('deviceGrouping', deviceGrouping);
+            params.set('sourceGrouping', sourceGrouping);
             
             const newUrl = `${window.location.pathname}?${params.toString()}`;
             window.history.pushState({}, '', newUrl);
@@ -300,6 +325,7 @@
             document.getElementById('current-visits').textContent = data.realtime_aggregates.current_visits;
             document.getElementById('location-grouping-label').textContent = document.getElementById('location-grouping').value;
             document.getElementById('device-grouping-label').textContent = document.getElementById('device-grouping').value;
+            document.getElementById('source-grouping-label').textContent = document.getElementById('source-grouping').value;
 
             // Update location table
             const locationTableBody = document.getElementById('location-data');
@@ -390,6 +416,55 @@
                     deviceTableBody.appendChild(row);
                 });
             }
+
+            // Update source table
+            const sourceTableBody = document.getElementById('source-data');
+            sourceTableBody.innerHTML = '';
+            
+            if (data.source_metrics) {
+                const sourceGrouping = document.getElementById('source-grouping').value;
+                const metric = document.getElementById('metric').value;
+
+                data.source_metrics.forEach(({source, referrer, utm_source, utm_medium, utm_campaign, visitors, visits, pageviews}) => {
+                    const row = document.createElement('tr');
+                    let value = visitors;
+                    let grouping = source;
+
+                    switch(metric) {
+                        case 'UniqueVisitors':
+                            value = visitors;
+                            break;
+                        case 'Visits':
+                            value = visits;
+                            break;
+                        case 'Pageviews':
+                            value = pageviews;
+                            break;
+                    }
+
+                    switch(sourceGrouping) {
+                        case 'Source':
+                            grouping = source;
+                            break;
+                        case 'Referrer':
+                            grouping = referrer || 'Direct';
+                            break;
+                        case 'Campaign':
+                            if (utm_source || utm_medium || utm_campaign) {
+                                grouping = `${utm_source || '-'}/${utm_medium || '-'}/${utm_campaign || '-'}`;
+                            } else {
+                                grouping = 'No Campaign';
+                            }
+                            break;
+                    }
+                    
+                    row.innerHTML = `
+                        <td>${grouping}</td>
+                        <td>${value}</td>
+                    `;
+                    sourceTableBody.appendChild(row);
+                });
+            }
         }
 
         let chart;
@@ -400,8 +475,9 @@
             const metric = document.getElementById('metric').value;
             const locationGrouping = document.getElementById('location-grouping').value;
             const deviceGrouping = document.getElementById('device-grouping').value;
+            const sourceGrouping = document.getElementById('source-grouping').value;
             
-            const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}&device_grouping=${deviceGrouping}`);
+            const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}&device_grouping=${deviceGrouping}&source_grouping=${sourceGrouping}`);
             const data = await response.json();
             
             const timestamps = data.stats.map(([timestamp]) => {
@@ -502,6 +578,7 @@
         document.getElementById('granularity').value = initialParams.granularity;
         document.getElementById('location-grouping').value = initialParams.locationGrouping;
         document.getElementById('device-grouping').value = initialParams.deviceGrouping;
+        document.getElementById('source-grouping').value = initialParams.sourceGrouping;
 
         // Initialize filters and data
         updateFilters();

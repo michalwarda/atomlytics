@@ -31,6 +31,13 @@ pub enum DeviceGrouping {
     DeviceType,
 }
 
+#[derive(serde::Deserialize, Clone, Copy)]
+pub enum SourceGrouping {
+    Source,
+    Referrer,
+    Campaign,
+}
+
 impl StatisticsAggregator {
     pub fn new(db: Arc<Connection>) -> Self {
         Self { db }
@@ -177,6 +184,31 @@ impl StatisticsAggregator {
                     GROUP BY period_start, browser, operating_system, device_type",
                     params![period_type.to_string(), time_division, start_timestamp],
                 )?;
+
+                // Add source statistics
+                conn.execute(
+                    "INSERT OR REPLACE INTO source_statistics (
+                        period_type, period_start, source, referrer, utm_source, utm_medium, utm_campaign,
+                        visitors, visits, pageviews, created_at
+                    )
+                    SELECT 
+                        ?1 as period_type,
+                        (timestamp / ?2) * ?2 as period_start,
+                        COALESCE(source, 'Direct') as source,
+                        COALESCE(referrer, 'Unknown') as referrer,
+                        COALESCE(utm_source, 'Unknown') as utm_source,
+                        COALESCE(utm_medium, 'Unknown') as utm_medium,
+                        COALESCE(utm_campaign, 'Unknown') as utm_campaign,
+                        COUNT(DISTINCT visitor_id) as visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        strftime('%s', 'now') as created_at
+                    FROM events
+                    WHERE timestamp >= ?3
+                    GROUP BY period_start, source, referrer, utm_source, utm_medium, utm_campaign",
+                    params![period_type.to_string(), time_division, start_timestamp],
+                )?;
+
                 Ok(())
             })
             .await
@@ -286,6 +318,36 @@ impl StatisticsAggregator {
                         FROM events 
                         WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
                         GROUP BY browser, operating_system, device_type",
+                        params![
+                            period_name,
+                            &start_ts,
+                            &end_ts,
+                            &start_ts,
+                            &end_ts,
+                        ],
+                    )?;
+
+                    // Add source metrics
+                    conn.execute(
+                        "INSERT OR REPLACE INTO source_aggregated_metrics 
+                        (period_name, start_ts, end_ts, source, referrer, utm_source, utm_medium, utm_campaign,
+                         visitors, visits, pageviews, created_at)
+                        SELECT 
+                            ?,
+                            ?,
+                            ?,
+                            COALESCE(source, 'Direct') as source,
+                            COALESCE(referrer, 'Unknown') as referrer,
+                            COALESCE(utm_source, 'Unknown') as utm_source,
+                            COALESCE(utm_medium, 'Unknown') as utm_medium,
+                            COALESCE(utm_campaign, 'Unknown') as utm_campaign,
+                            COUNT(DISTINCT visitor_id),
+                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                            strftime('%s', 'now')
+                        FROM events 
+                        WHERE timestamp >= ? AND timestamp <= ?
+                        GROUP BY source, referrer, utm_source, utm_medium, utm_campaign",
                         params![
                             period_name,
                             &start_ts,
@@ -405,6 +467,7 @@ impl StatisticsAggregator {
         metric: Metric,
         location_grouping: LocationGrouping,
         device_grouping: DeviceGrouping,
+        source_grouping: SourceGrouping,
     ) -> Result<Statistics, tokio_rusqlite::Error> {
         let now = Utc::now()
             .with_second(0)
@@ -459,12 +522,15 @@ impl StatisticsAggregator {
 
         let device_metrics = self.get_device_metrics(&timeframe, &metric, device_grouping).await?;
 
+        let source_metrics = self.get_source_metrics(&timeframe, &metric, source_grouping).await?;
+
         Ok(Statistics {
             stats,
             aggregates,
             realtime_aggregates,
             location_metrics,
             device_metrics,
+            source_metrics,
         })
     }
 
@@ -710,8 +776,6 @@ impl StatisticsAggregator {
                     group_by_clause, metric_str
                 );
 
-                println!("Start: {}", start_ts);
-                println!("End: {}", end_ts);
                 let mut stmt = conn.prepare(&query)?;
 
                 let metrics = stmt.query_map(params![period_name.unwrap_or(""), start_ts, end_ts], |row| {
@@ -731,6 +795,99 @@ impl StatisticsAggregator {
                             browser: row.get(0)?,
                             operating_system: row.get(1)?,
                             device_type: row.get(2)?,
+                            visitors,
+                            visits,
+                            pageviews,
+                        }))
+                    } else {
+                        Ok(None)
+                    }
+                })?.filter_map(|r| r.transpose()).collect::<Result<Vec<_>, _>>()?;
+
+                Ok(metrics)
+            })
+            .await
+    }
+
+    async fn get_source_metrics(
+        &self,
+        timeframe: &TimeFrame,
+        metric: &Metric,
+        grouping: SourceGrouping,
+    ) -> Result<Vec<SourceMetrics>, tokio_rusqlite::Error> {
+        let now = Utc::now()
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap();
+        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let today_start_ts = today_start.and_utc().timestamp();
+        let today_end = today_start + chrono::Duration::days(1);
+        let today_end_ts = today_end.and_utc().timestamp();
+
+        let metric_str = match metric {
+            Metric::UniqueVisitors => "visitors",
+            Metric::Visits => "visits",
+            Metric::Pageviews => "pageviews",
+        };
+
+        let (start_ts, end_ts, period_name) = match timeframe {
+            TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
+            TimeFrame::Today => (today_start_ts, today_end_ts, Some("today")),
+            TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts, Some("yesterday")),
+            TimeFrame::Last7Days => (now.timestamp() - 7 * 86400, now.timestamp(), Some("last_7_days")),
+            TimeFrame::Last30Days => (now.timestamp() - 30 * 86400, now.timestamp(), Some("last_30_days")),
+            TimeFrame::AllTime => (0, now.timestamp(), None),
+        };
+
+        let group_by_clause = match grouping {
+            SourceGrouping::Source => "source",
+            SourceGrouping::Referrer => "source, referrer",
+            SourceGrouping::Campaign => "source, utm_source, utm_medium, utm_campaign",
+        };
+
+        self.db
+            .call(move |conn| {
+                let query = format!(
+                    "SELECT 
+                        source,
+                        referrer,
+                        utm_source,
+                        utm_medium,
+                        utm_campaign,
+                        SUM(visitors) as visitors,
+                        SUM(visits) as visits,
+                        SUM(pageviews) as pageviews
+                     FROM source_aggregated_metrics
+                     WHERE period_name = ?
+                     AND start_ts >= ?
+                     AND end_ts <= ?
+                     GROUP BY {}
+                     ORDER BY {} DESC",
+                    group_by_clause, metric_str
+                );
+
+                let mut stmt = conn.prepare(&query)?;
+
+                let metrics = stmt.query_map(params![period_name.unwrap_or(""), start_ts, end_ts], |row| {
+                    let visitors: i64 = row.get(5)?;
+                    let visits: i64 = row.get(6)?;
+                    let pageviews: i64 = row.get(7)?;
+                    
+                    let value = match metric_str {
+                        "visitors" => visitors,
+                        "visits" => visits,
+                        "pageviews" => pageviews,
+                        _ => 0,
+                    };
+                    
+                    if value > 0 {
+                        Ok(Some(SourceMetrics {
+                            source: row.get(0)?,
+                            referrer: row.get(1)?,
+                            utm_source: row.get(2)?,
+                            utm_medium: row.get(3)?,
+                            utm_campaign: row.get(4)?,
                             visitors,
                             visits,
                             pageviews,
@@ -792,10 +949,23 @@ pub struct DeviceMetrics {
 }
 
 #[derive(serde::Serialize)]
+pub struct SourceMetrics {
+    pub source: String,
+    pub referrer: Option<String>,
+    pub utm_source: Option<String>,
+    pub utm_medium: Option<String>,
+    pub utm_campaign: Option<String>,
+    pub visitors: i64,
+    pub visits: i64,
+    pub pageviews: i64,
+}
+
+#[derive(serde::Serialize)]
 pub struct Statistics {
     stats: Vec<(i64, i64)>,
     aggregates: AggregateMetrics,
     realtime_aggregates: AggregateMetrics,
     location_metrics: Vec<LocationMetrics>,
     device_metrics: Vec<DeviceMetrics>,
+    source_metrics: Vec<SourceMetrics>,
 }

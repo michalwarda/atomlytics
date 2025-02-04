@@ -56,6 +56,43 @@ impl EventHandler {
     }
 
     #[instrument(skip(self))]
+    fn calculate_source(&self, referrer: &Option<String>, utm_source: &Option<String>) -> String {
+        if let Some(utm) = utm_source {
+            if !utm.is_empty() {
+                return utm.clone();
+            }
+        }
+
+        if let Some(ref_url) = referrer {
+            if let Ok(url) = Url::parse(ref_url) {
+                if let Some(host) = url.host_str() {
+                    // Extract domain and remove www. if present
+                    let domain = if host.starts_with("www.") {
+                        host[4..].to_string()
+                    } else {
+                        host.to_string()
+                    };
+
+                    // Special cases for common sources
+                    return match domain.as_str() {
+                        "google.com" | "google.co.uk" | "google.fr" => "Google".to_string(),
+                        "facebook.com" => "Facebook".to_string(),
+                        "twitter.com" => "Twitter".to_string(),
+                        "linkedin.com" | "lnkd.in" => "LinkedIn".to_string(),
+                        "instagram.com" => "Instagram".to_string(),
+                        "t.co" => "Twitter".to_string(),
+                        "bing.com" => "Bing".to_string(),
+                        "yahoo.com" => "Yahoo".to_string(),
+                        _ => domain,
+                    };
+                }
+            }
+        }
+
+        "Direct".to_string()
+    }
+
+    #[instrument(skip(self))]
     async fn process_user_agent_info(&self, user_agent: &str, event: &mut Event) {
         let ua_info = self.state.parse_user_agent(user_agent);
         event.browser = ua_info.browser;
@@ -94,6 +131,7 @@ impl EventHandler {
         let event_type = event.event_type.clone();
         let page_url = event.page_url.clone();
         let referrer = event.referrer.clone();
+        let source = event.source.clone();
         let browser = event.browser.clone();
         let operating_system = event.operating_system.clone();
         let device_type = event.device_type.clone();
@@ -121,17 +159,18 @@ impl EventHandler {
             .call(move |conn| {
                 conn.execute(
                     "INSERT INTO events (
-                        event_type, page_url, referrer, browser, operating_system, 
+                        event_type, page_url, referrer, source, browser, operating_system, 
                         device_type, country, region, city,
                         utm_source, utm_medium, utm_campaign, utm_content, utm_term,
                         timestamp, visitor_id, custom_params, is_active, last_activity_at
                     ) VALUES (
-                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
                     )",
                     params![
                         &event_type,
                         &page_url,
                         &referrer,
+                        &source,
                         &browser,
                         &operating_system,
                         &device_type,
@@ -224,6 +263,7 @@ impl EventHandler {
                 country: event.country.clone(),
                 region: event.region.clone(),
                 city: event.city.clone(),
+                source: event.source.clone(),
                 utm_source: event.utm_source.clone(),
                 utm_medium: event.utm_medium.clone(),
                 utm_campaign: event.utm_campaign.clone(),
@@ -255,6 +295,10 @@ impl EventHandler {
         let ip_str = RemoteIp::get(&headers, &addr);
         let user_agent = self.extract_user_agent(&headers);
         event.referrer = self.extract_referrer(&headers);
+
+        // Calculate source before saving the event
+        let source = self.calculate_source(&event.referrer, &event.utm_source);
+        event.source = Some(source);
 
         self.process_user_agent_info(&user_agent, &mut event).await;
 
