@@ -121,8 +121,8 @@ impl EventHandler {
             .call(move |conn| {
                 conn.execute(
                     "INSERT INTO events (
-                        event_type, page_url, referrer, browser, operating_system, 
-                        device_type, country, region, city,
+                        event_type, page_url, COALESCE(referrer, 'Unknown') as referrer, COALESCE(browser, 'Unknown') as browser, COALESCE(operating_system, 'Unknown') as operating_system, 
+                        COALESCE(device_type, 'Unknown') as device_type, COALESCE(country, 'Unknown') as country, COALESCE(region, 'Unknown') as region, COALESCE(city, 'Unknown') as city,
                         utm_source, utm_medium, utm_campaign, utm_content, utm_term,
                         timestamp, visitor_id, custom_params, is_active, last_activity_at
                     ) VALUES (
