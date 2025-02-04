@@ -1,6 +1,8 @@
 use chrono::Utc;
+use rusqlite::params;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
+use tracing::error;
 
 pub struct StatisticsAggregator {
     db: Arc<Connection>,
@@ -18,12 +20,70 @@ impl StatisticsAggregator {
         Self { db }
     }
 
+    pub async fn aggregate_active_statistics(&self) -> Result<(), tokio_rusqlite::Error> {
+        self.mark_inactive_visits().await?;
+        self.aggregate_active_stats().await?;
+        self.aggregate_active_period_metrics().await?;
+        Ok(())
+    }
+
     pub async fn aggregate_statistics(&self) -> Result<(), tokio_rusqlite::Error> {
         self.aggregate_minute_stats().await?;
         self.aggregate_hourly_stats().await?;
         self.aggregate_daily_stats().await?;
         self.aggregate_period_metrics().await?;
         Ok(())
+    }
+
+    async fn mark_inactive_visits(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let active_threshold = now - chrono::Duration::minutes(30);
+
+        self.db
+            .call(move |conn| {
+                conn.execute("UPDATE events SET is_active = 1 WHERE event_type = 'visit' AND last_activity_at >= ?", [active_threshold.timestamp()])?;
+                Ok(())
+            })
+            .await
+    }
+
+    async fn aggregate_active_stats(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let thirty_minutes_ago = now - chrono::Duration::minutes(30);
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
+                        SELECT 
+                            'realtime' as period_type,
+                            (timestamp / 60) * 60 as period_start,
+                            COUNT(DISTINCT visitor_id) as unique_visitors,
+                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
+                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
+                            strftime('%s', 'now') as created_at
+                        FROM events
+                        WHERE timestamp >= ?
+                        GROUP BY period_start",
+                    [thirty_minutes_ago.timestamp()],
+                )?;
+                // Insert a zero record if no data exists
+                conn.execute(
+                    "INSERT OR IGNORE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
+                    SELECT 
+                        'realtime' as period_type,
+                        0 as period_start,
+                        0 as unique_visitors, 
+                        0 as total_visits,
+                        0 as total_pageviews,
+                        strftime('%s', 'now') as created_at
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM statistics WHERE period_type = 'realtime'
+                    )",
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
     }
 
     async fn aggregate_minute_stats(&self) -> Result<(), tokio_rusqlite::Error> {
@@ -144,6 +204,38 @@ impl StatisticsAggregator {
             .await
     }
 
+    async fn aggregate_active_period_metrics(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let thirty_minutes_ago = now - chrono::Duration::minutes(30);
+
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO aggregated_metrics 
+                (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, current_visits, created_at)
+                SELECT 
+                    ?,
+                    ?,
+                    ?,
+                    COUNT(DISTINCT visitor_id),
+                    COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                    COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                    COUNT(DISTINCT CASE WHEN event_type = 'visit' AND is_active = 1 THEN id ELSE NULL END),
+                    strftime('%s', 'now')
+                FROM events 
+                WHERE timestamp >= ? AND timestamp <= ?",
+                params![
+                    "realtime",
+                    &thirty_minutes_ago.timestamp(),
+                    &now.timestamp(),
+                    &thirty_minutes_ago.timestamp(),
+                    &now.timestamp(),
+                ],
+            )?;
+            Ok(())
+        }).await
+    }
+
     async fn calculate_aggregates(&self, start_ts: i64, end_ts: i64) -> Result<AggregateMetrics, tokio_rusqlite::Error> {
         self.db
             .call(move |conn| {
@@ -161,6 +253,7 @@ impl StatisticsAggregator {
                         unique_visitors: row.get(0)?,
                         total_visits: row.get(1)?,
                         total_pageviews: row.get(2)?,
+                        current_visits: None,
                     })
                 })?;
                 
@@ -180,6 +273,7 @@ impl StatisticsAggregator {
         let today_start_ts = today_start.and_utc().timestamp();
 
         let (start_ts, end_ts, period_name) = match timeframe {
+            TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
             TimeFrame::Today => (today_start_ts, now.timestamp(), Some("today")),
             TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts, Some("yesterday")),
             TimeFrame::Last7Days => (now.timestamp() - 7 * 86400, now.timestamp(), Some("last_7_days")),
@@ -189,6 +283,7 @@ impl StatisticsAggregator {
 
         let stats = self.get_time_series_data(start_ts, end_ts, granularity, metric).await?;
 
+
         let aggregates = match period_name {
             Some(period) => {
                 self.db
@@ -196,14 +291,16 @@ impl StatisticsAggregator {
                         let mut stmt = conn.prepare(
                             "SELECT unique_visitors, total_visits, total_pageviews 
                              FROM aggregated_metrics 
-                             WHERE period_name = ?"
+                             WHERE period_name = ?
+                             "
                         )?;
                         
-                        Ok(stmt.query_row([period], |row| {
+                        Ok(stmt.query_row(params![period], |row| {
                             Ok(AggregateMetrics {
                                 unique_visitors: row.get(0)?,
                                 total_visits: row.get(1)?,
                                 total_pageviews: row.get(2)?,
+                                current_visits: None,
                             })
                         })?)
                     })
@@ -212,7 +309,10 @@ impl StatisticsAggregator {
             None => self.calculate_aggregates(start_ts, end_ts).await,
         }?;
 
-        Ok(Statistics { stats, aggregates })
+
+        let realtime_aggregates = self.get_realtime_aggregates().await?;
+
+        Ok(Statistics { stats, aggregates, realtime_aggregates })
     }
 
     async fn get_time_series_data(
@@ -256,7 +356,7 @@ impl StatisticsAggregator {
                     },
                 )
                 .map_err(|_| {
-                    println!("Failed to get time series data");
+                    error!("Failed to get time series data");
                     rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
                         Some("Failed to get time series data".to_string()),
@@ -285,10 +385,32 @@ impl StatisticsAggregator {
             })
             .await
     }
+
+    async fn get_realtime_aggregates(&self) -> Result<AggregateMetrics, tokio_rusqlite::Error> {
+        self.db
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT unique_visitors, total_visits, total_pageviews, current_visits
+                     FROM aggregated_metrics
+                     WHERE period_name = 'realtime'"
+                )?;
+
+                Ok(stmt.query_row([], |row| {
+                    Ok(AggregateMetrics {
+                        unique_visitors: row.get(0)?,
+                        total_visits: row.get(1)?,
+                        total_pageviews: row.get(2)?,
+                        current_visits: row.get(3)?,
+                    })
+                })?)
+            })
+        .await
+    }
 }
 
 #[derive(serde::Deserialize)]
 pub enum TimeFrame {
+    Realtime,
     Today,
     Yesterday,
     Last7Days,
@@ -308,10 +430,12 @@ pub struct AggregateMetrics {
     pub unique_visitors: i64,
     pub total_visits: i64,
     pub total_pageviews: i64,
+    pub current_visits: Option<i64>,
 }
 
 #[derive(serde::Serialize)]
 pub struct Statistics {
     stats: Vec<(i64, i64)>,
     aggregates: AggregateMetrics,
+    realtime_aggregates: AggregateMetrics,
 }

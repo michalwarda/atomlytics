@@ -74,6 +74,8 @@ struct Event {
     timestamp: i64,
     #[serde(skip_deserializing)]
     visitor_id: Option<String>,
+    #[serde(skip_deserializing)]
+    is_active: i64,
 }
 
 #[derive(Debug)]
@@ -388,6 +390,17 @@ fn get_migrations() -> Vec<Migration> {
             )?;
             Ok(())
         }),
+        Migration::new("Add is_active to events", 5, |conn| {
+            conn.execute("ALTER TABLE events ADD COLUMN is_active INTEGER", [])?;
+            Ok(())
+        }),
+        Migration::new("Add realtime stats", 6, |conn| {
+            conn.execute(
+                "ALTER TABLE aggregated_metrics ADD COLUMN current_visits INTEGER",
+                [],
+            )?;
+            Ok(())
+        }),
     ]
 }
 
@@ -563,6 +576,19 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Start active statistics aggregation task
+    let db_clone = app_state.db.clone();
+    tokio::spawn(async move {
+        let aggregator = StatisticsAggregator::new(db_clone);
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            if let Err(e) = aggregator.aggregate_active_statistics().await {
+                error!("Failed to aggregate active statistics: {}", e);
+            }
+        }
+    });
+
     // Create router with routes
     let app = Router::new()
         .route("/health", get(health_check))
@@ -667,5 +693,8 @@ async fn get_statistics(
         .get_filtered_statistics(params.timeframe, params.granularity, params.metric)
         .await
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|e| {
+            error!("Failed to get statistics: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
 }

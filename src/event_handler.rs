@@ -107,7 +107,7 @@ impl EventHandler {
         let utm_term = event.utm_term.clone();
         let timestamp = event.timestamp;
         let visitor_id = event.visitor_id.clone();
-
+        let is_active = event.is_active;
         debug!(
             event_type = %event_type,
             page_url = %page_url,
@@ -123,9 +123,9 @@ impl EventHandler {
                         event_type, page_url, referrer, browser, operating_system, 
                         device_type, country, region, city,
                         utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                        timestamp, visitor_id, custom_params
+                        timestamp, visitor_id, custom_params, is_active
                     ) VALUES (
-                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
                     )",
                     params![
                         &event_type,
@@ -145,6 +145,7 @@ impl EventHandler {
                         timestamp,
                         &visitor_id,
                         &custom_params,
+                        &is_active,
                     ],
                 )
                 .map(|_| {
@@ -225,6 +226,7 @@ impl EventHandler {
                 timestamp,
                 visitor_id: Some(visitor_id_clone.to_string()),
                 custom_params: None,
+                is_active: 1,
             };
 
             self.save_event(&visit_event, None).await?;

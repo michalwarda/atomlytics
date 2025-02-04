@@ -88,6 +88,7 @@
             <div class="filter-group">
                 <label for="timeframe">Time Frame:</label>
                 <select id="timeframe" onchange="updateFilters()">
+                    <option value="Realtime">Realtime</option>
                     <option value="Today">Today</option>
                     <option value="Yesterday">Yesterday</option>
                     <option value="Last7Days">Last 7 Days</option>
@@ -106,6 +107,10 @@
         </div>
 
         <div class="metrics-container">
+            <div class="metric">
+                <h3>Current Visitors</h3>
+                <p id="current-visits">-</p>
+            </div>
             <div class="metric">
                 <h3>Unique Visitors</h3>
                 <p id="unique-visitors">-</p>
@@ -131,7 +136,9 @@
             
             granularitySelect.innerHTML = '';
             
-            if (timeframe === 'Today' || timeframe === 'Yesterday') {
+            if (timeframe === 'Realtime') {
+                granularitySelect.add(new Option('Minutes', 'Minutes'));
+            } else if (timeframe === 'Today' || timeframe === 'Yesterday') {
                 granularitySelect.add(new Option('Minutes', 'Minutes'));
                 granularitySelect.add(new Option('Hours', 'Hours'));
             } else {
@@ -147,6 +154,7 @@
             document.getElementById('unique-visitors').textContent = data.aggregates.unique_visitors;
             document.getElementById('total-visits').textContent = data.aggregates.total_visits;
             document.getElementById('total-pageviews').textContent = data.aggregates.total_pageviews;
+            document.getElementById('current-visits').textContent = data.realtime_aggregates.current_visits;
         }
 
         async function fetchData() {
@@ -210,12 +218,10 @@
         // Initialize filters and data
         updateFilters();
         
-        // Update every minute if showing current day
+        // Update interval based on timeframe
         setInterval(() => {
-            if (document.getElementById('timeframe').value === 'Today') {
-                fetchData();
-            }
-        }, 60000);
+            fetchData();
+        }, 10000);
     </script>
 </body>
 </html> 
