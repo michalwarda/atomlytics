@@ -7,7 +7,11 @@ image: michalwarda/atomlytics
 # Deploy to these servers.
 servers:
   web:
-    - 188.245.64.10
+    hosts:
+      - 188.245.64.10
+    options:
+      memory: 1g
+      cpus: 1
   # job:
   #   hosts:
   #     - 192.168.0.1
