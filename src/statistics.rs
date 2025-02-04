@@ -1,4 +1,6 @@
+use chrono::Timelike;
 use chrono::Utc;
+use chrono::DateTime;
 use rusqlite::params;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
@@ -35,23 +37,34 @@ impl StatisticsAggregator {
     }
 
     pub async fn aggregate_active_statistics(&self) -> Result<(), tokio_rusqlite::Error> {
-        self.mark_inactive_visits().await?;
-        self.aggregate_active_stats().await?;
-        self.aggregate_active_period_metrics().await?;
+        let now = Utc::now()
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap();
+        
+        self.mark_inactive_visits(now).await?;
+        self.aggregate_active_stats(now).await?;
+        self.aggregate_active_period_metrics(now).await?;
         Ok(())
     }
 
     pub async fn aggregate_statistics(&self) -> Result<(), tokio_rusqlite::Error> {
-        self.aggregate_minute_stats().await?;
-        self.aggregate_hourly_stats().await?;
-        self.aggregate_daily_stats().await?;
-        self.aggregate_period_metrics().await?;
-        self.remove_unused_aggregated_metrics().await?;
+        let now = Utc::now()
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap();
+            
+        self.aggregate_minute_stats(now).await?;
+        self.aggregate_hourly_stats(now).await?;
+        self.aggregate_daily_stats(now).await?;
+        self.aggregate_period_metrics(now).await?;
+        self.remove_unused_aggregated_metrics(now).await?;
         Ok(())
     }
 
-    async fn remove_unused_aggregated_metrics(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
+    async fn remove_unused_aggregated_metrics(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
 
@@ -78,8 +91,7 @@ impl StatisticsAggregator {
         Ok(())
     }
 
-    async fn mark_inactive_visits(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
+    async fn mark_inactive_visits(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let active_threshold = now - chrono::Duration::minutes(30);
 
         self.db
@@ -175,32 +187,27 @@ impl StatisticsAggregator {
             .await
     }
 
-    async fn aggregate_active_stats(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
+    async fn aggregate_active_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let thirty_minutes_ago = now - chrono::Duration::minutes(30);
         self.aggregate_stats_for_period("realtime", 60, thirty_minutes_ago.timestamp()).await
     }
 
-    async fn aggregate_minute_stats(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
+    async fn aggregate_minute_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let five_minutes_ago = now - chrono::Duration::minutes(5);
         self.aggregate_stats_for_period("minute", 60, five_minutes_ago.timestamp()).await
     }
 
-    async fn aggregate_hourly_stats(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
+    async fn aggregate_hourly_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let day_ago = now - chrono::Duration::days(1);
         self.aggregate_stats_for_period("hour", 3600, day_ago.timestamp()).await
     }
 
-    async fn aggregate_daily_stats(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
+    async fn aggregate_daily_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let month_ago = now - chrono::Duration::days(30);
         self.aggregate_stats_for_period("day", 86400, month_ago.timestamp()).await
     }
 
-    async fn aggregate_period_metrics(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
+    async fn aggregate_period_metrics(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
         let today_end = today_start + chrono::Duration::days(1);
@@ -299,8 +306,7 @@ impl StatisticsAggregator {
             .await
     }
 
-    async fn aggregate_active_period_metrics(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
+    async fn aggregate_active_period_metrics(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let thirty_minutes_ago = (now.timestamp() / 60 * 60) - 60 * 30;
 
         self.db
