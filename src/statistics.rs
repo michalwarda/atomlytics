@@ -129,7 +129,7 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
                         strftime('%s', 'now') as created_at
                      FROM events 
-                     WHERE timestamp >= ?2
+                     WHERE timestamp >= ?3
                      GROUP BY period_start",
                     params![period_type.to_string(), time_division, start_timestamp],
                 )?;
@@ -149,7 +149,7 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
                         strftime('%s', 'now') as created_at
                     FROM events
-                    WHERE timestamp >= ?2 AND country IS NOT NULL
+                    WHERE timestamp >= ?3 AND country IS NOT NULL
                     GROUP BY period_start, country, region, city",
                     params![period_type.to_string(), time_division, start_timestamp],
                 )?;
@@ -171,7 +171,7 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
                         strftime('%s', 'now') as created_at
                     FROM events
-                    WHERE timestamp >= ?2 AND browser IS NOT NULL
+                    WHERE timestamp >= ?3 AND browser IS NOT NULL
                     GROUP BY period_start, browser, operating_system, device_type",
                     params![period_type.to_string(), time_division, start_timestamp],
                 )?;
