@@ -335,7 +335,9 @@ impl StatisticsAggregator {
                     (period_name, start_ts, end_ts, country, region, city, visitors, visits, pageviews, created_at)
                     SELECT 
                         'realtime', ?, ?, 
-                        country, region, city,
+                        COALESCE(country, 'Unknown') as country,
+                        COALESCE(region, 'Unknown') as region,
+                        COALESCE(city, 'Unknown') as city,
                         COUNT(DISTINCT visitor_id),
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
@@ -353,7 +355,9 @@ impl StatisticsAggregator {
                      visitors, visits, pageviews, created_at)
                     SELECT 
                         'realtime', ?, ?, 
-                        browser, operating_system, device_type,
+                        COALESCE(browser, 'Unknown') as browser,
+                        COALESCE(operating_system, 'Unknown') as operating_system,
+                        COALESCE(device_type, 'Unknown') as device_type,
                         COUNT(DISTINCT visitor_id),
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
