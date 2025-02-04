@@ -90,7 +90,7 @@
             <div class="filter-group">
                 <label for="metric">Metric:</label>
                 <select id="metric" onchange="updateFilters()">
-                    <option value="UniqueVisitors">Unique Visitors</option>
+                    <option value="UniqueVisitors" selected>Unique Visitors</option>
                     <option value="Visits">Total Visits</option>
                     <option value="Pageviews">Total Pageviews</option>
                 </select>
@@ -99,7 +99,7 @@
                 <label for="timeframe">Time Frame:</label>
                 <select id="timeframe" onchange="updateFilters()">
                     <option value="Realtime">Realtime</option>
-                    <option value="Today">Today</option>
+                    <option value="Today" selected>Today</option>
                     <option value="Yesterday">Yesterday</option>
                     <option value="Last7Days">Last 7 Days</option>
                     <option value="Last30Days">Last 30 Days</option>
@@ -108,9 +108,9 @@
             </div>
             <div class="filter-group">
                 <label for="granularity">Show by:</label>
-                <select id="granularity" onchange="fetchData()">
+                <select id="granularity" onchange="updateFilters()">
                     <option value="Minutes">Minutes</option>
-                    <option value="Hours">Hours</option>
+                    <option value="Hours" selected>Hours</option>
                     <option value="Days">Days</option>
                 </select>
             </div>
@@ -141,6 +141,29 @@
     </div>
 
     <script>
+        function getQueryParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                metric: params.get('metric') || 'UniqueVisitors',
+                timeframe: params.get('timeframe') || 'Today',
+                granularity: params.get('granularity') || 'Hours'
+            };
+        }
+
+        function updateQueryParams() {
+            const metric = document.getElementById('metric').value;
+            const timeframe = document.getElementById('timeframe').value;
+            const granularity = document.getElementById('granularity').value;
+            
+            const params = new URLSearchParams();
+            params.set('metric', metric);
+            params.set('timeframe', timeframe);
+            params.set('granularity', granularity);
+            
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
+            window.history.pushState({}, '', newUrl);
+        }
+
         function updateFilters() {
             const metric = document.getElementById('metric').value;
             const timeframe = document.getElementById('timeframe').value;
@@ -169,11 +192,10 @@
                 granularitySelect.value = granularity;
             } 
             
-            
+            updateQueryParams();
             fetchData();
         }
 
-        
         function updateStatistics(data) {
             document.getElementById('unique-visitors').textContent = data.aggregates.unique_visitors;
             document.getElementById('total-visits').textContent = data.aggregates.total_visits;
@@ -282,6 +304,12 @@
 
             updateStatistics(data);
         }
+
+        // Initialize filters from URL params
+        const initialParams = getQueryParams();
+        document.getElementById('metric').value = initialParams.metric;
+        document.getElementById('timeframe').value = initialParams.timeframe;
+        document.getElementById('granularity').value = initialParams.granularity;
 
         // Initialize filters and data
         updateFilters();
