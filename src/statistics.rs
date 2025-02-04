@@ -47,194 +47,89 @@ impl StatisticsAggregator {
             .await
     }
 
-    async fn aggregate_active_stats(&self) -> Result<(), tokio_rusqlite::Error> {
-        let now = chrono::Utc::now();
-        let thirty_minutes_ago = now - chrono::Duration::minutes(30);
+    async fn aggregate_stats_for_period(
+        &self,
+        period_type: &str,
+        time_division: i64,
+        start_timestamp: i64,
+    ) -> Result<(), tokio_rusqlite::Error> {
+        let period_type = period_type.to_string();
         self.db
             .call(move |conn| {
                 conn.execute(
                     "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
-                        SELECT 
-                            'realtime' as period_type,
-                            (timestamp / 60) * 60 as period_start,
-                            COUNT(DISTINCT visitor_id) as unique_visitors,
-                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
-                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
-                            strftime('%s', 'now') as created_at
-                        FROM events
-                        WHERE timestamp >= ?
-                        GROUP BY period_start",
-                    [thirty_minutes_ago.timestamp()],
+                     SELECT 
+                        ?1 as period_type,
+                        (timestamp / ?2) * ?2 as period_start,
+                        COUNT(DISTINCT visitor_id) as unique_visitors,
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
+                        strftime('%s', 'now') as created_at
+                     FROM events 
+                     WHERE timestamp >= ?3
+                     GROUP BY period_start",
+                    params![period_type.to_string(), time_division, start_timestamp],
                 )?;
-                // Insert a zero record if no data exists
+
                 conn.execute(
                     "INSERT OR IGNORE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
                     SELECT 
-                        'realtime' as period_type,
+                        ?1 as period_type,
                         0 as period_start,
                         0 as unique_visitors, 
                         0 as total_visits,
                         0 as total_pageviews,
                         strftime('%s', 'now') as created_at
                     WHERE NOT EXISTS (
-                        SELECT 1 FROM statistics WHERE period_type = 'realtime'
+                        SELECT 1 FROM statistics WHERE period_type = ?1
                     )",
-                    [],
+                    [period_type.to_string()],
                 )?;
 
-                // Add country statistics
                 conn.execute(
                     "INSERT OR REPLACE INTO country_statistics (
                         period_type, period_start, country, visitors, visits, pageviews, created_at
                     )
                     SELECT 
-                        'realtime' as period_type,
-                        (timestamp / 60) * 60 as period_start,
+                        ?1 as period_type,
+                        (timestamp / ?2) * ?2 as period_start,
                         country,
                         COUNT(DISTINCT visitor_id) as visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
                         strftime('%s', 'now') as created_at
                     FROM events
-                    WHERE timestamp >= ? AND country IS NOT NULL
+                    WHERE timestamp >= ?3 AND country IS NOT NULL
                     GROUP BY period_start, country",
-                    [thirty_minutes_ago.timestamp()],
+                    params![period_type.to_string(), time_division, start_timestamp],
                 )?;
                 Ok(())
             })
             .await
+    }
+
+    async fn aggregate_active_stats(&self) -> Result<(), tokio_rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let thirty_minutes_ago = now - chrono::Duration::minutes(30);
+        self.aggregate_stats_for_period("realtime", 60, thirty_minutes_ago.timestamp()).await
     }
 
     async fn aggregate_minute_stats(&self) -> Result<(), tokio_rusqlite::Error> {
         let now = chrono::Utc::now();
         let five_minutes_ago = now - chrono::Duration::minutes(5);
-
-        self.db
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
-                     SELECT 
-                        'minute' as period_type,
-                        (timestamp / 60) * 60 as period_start,
-                        COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
-                        strftime('%s', 'now') as created_at
-                     FROM events 
-                     WHERE timestamp >= ?
-                     GROUP BY period_start",
-                    [five_minutes_ago.timestamp()],
-                )?;
-
-                // Add country statistics
-                conn.execute(
-                    "INSERT OR REPLACE INTO country_statistics (
-                        period_type, period_start, country, visitors, visits, pageviews, created_at
-                    )
-                    SELECT 
-                        'minute' as period_type,
-                        (timestamp / 60) * 60 as period_start,
-                        country,
-                        COUNT(DISTINCT visitor_id) as visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
-                        strftime('%s', 'now') as created_at
-                    FROM events
-                    WHERE timestamp >= ? AND country IS NOT NULL
-                    GROUP BY period_start, country",
-                    [five_minutes_ago.timestamp()],
-                )?;
-                Ok(())
-            })
-            .await
+        self.aggregate_stats_for_period("minute", 60, five_minutes_ago.timestamp()).await
     }
 
     async fn aggregate_hourly_stats(&self) -> Result<(), tokio_rusqlite::Error> {
         let now = chrono::Utc::now();
         let day_ago = now - chrono::Duration::days(1);
-
-        self.db
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
-                     SELECT 
-                        'hour' as period_type,
-                        (timestamp / 3600) * 3600 as period_start,
-                        COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
-                        strftime('%s', 'now') as created_at
-                     FROM events 
-                     WHERE timestamp >= ?
-                     GROUP BY period_start",
-                    [day_ago.timestamp()],
-                )?;
-
-                // Add country statistics
-                conn.execute(
-                    "INSERT OR REPLACE INTO country_statistics (
-                        period_type, period_start, country, visitors, visits, pageviews, created_at
-                    )
-                    SELECT 
-                        'hour' as period_type,
-                        (timestamp / 3600) * 3600 as period_start,
-                        country,
-                        COUNT(DISTINCT visitor_id) as visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
-                        strftime('%s', 'now') as created_at
-                    FROM events
-                    WHERE timestamp >= ? AND country IS NOT NULL
-                    GROUP BY period_start, country",
-                    [day_ago.timestamp()],
-                )?;
-                Ok(())
-            })
-            .await
+        self.aggregate_stats_for_period("hour", 3600, day_ago.timestamp()).await
     }
 
     async fn aggregate_daily_stats(&self) -> Result<(), tokio_rusqlite::Error> {
         let now = chrono::Utc::now();
         let month_ago = now - chrono::Duration::days(30);
-
-        self.db
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
-                     SELECT 
-                        'day' as period_type,
-                        (timestamp / 86400) * 86400 as period_start,
-                        COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
-                        strftime('%s', 'now') as created_at
-                     FROM events 
-                     WHERE timestamp >= ?
-                     GROUP BY period_start",
-                    [month_ago.timestamp()],
-                )?;
-
-                // Add country statistics
-                conn.execute(
-                    "INSERT OR REPLACE INTO country_statistics (
-                        period_type, period_start, country, visitors, visits, pageviews, created_at
-                    )
-                    SELECT 
-                        'day' as period_type,
-                        (timestamp / 86400) * 86400 as period_start,
-                        country,
-                        COUNT(DISTINCT visitor_id) as visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
-                        strftime('%s', 'now') as created_at
-                    FROM events 
-                    WHERE timestamp >= ? AND country IS NOT NULL
-                    GROUP BY period_start, country",
-                    [month_ago.timestamp()],
-                )?;
-                Ok(())
-            })
-            .await
+        self.aggregate_stats_for_period("day", 86400, month_ago.timestamp()).await
     }
 
     async fn aggregate_period_metrics(&self) -> Result<(), tokio_rusqlite::Error> {
