@@ -444,6 +444,9 @@ impl StatisticsAggregator {
                         COALESCE(utm_source, 'Unknown') as utm_source,
                         COALESCE(utm_medium, 'Unknown') as utm_medium,
                         COALESCE(utm_campaign, 'Unknown') as utm_campaign,
+                        COUNT(DISTINCT visitor_id),
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
                         strftime('%s', 'now')
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ?",
