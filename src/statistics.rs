@@ -8,7 +8,7 @@ pub struct StatisticsAggregator {
     db: Arc<Connection>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone, Copy)]
 pub enum Metric {
     UniqueVisitors,
     Visits,
@@ -428,7 +428,7 @@ impl StatisticsAggregator {
 
         let realtime_aggregates = self.get_realtime_aggregates().await?;
 
-        let country_metrics = self.get_country_metrics(&timeframe).await?;
+        let country_metrics = self.get_country_metrics(&timeframe, &metric.clone()).await?;
 
         Ok(Statistics {
             stats,
@@ -541,12 +541,19 @@ impl StatisticsAggregator {
     async fn get_country_metrics(
         &self,
         timeframe: &TimeFrame,
+        metric: &Metric,
     ) -> Result<Vec<CountryMetrics>, tokio_rusqlite::Error> {
         let now = Utc::now();
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
         let today_end = today_start + chrono::Duration::days(1);
         let today_end_ts = today_end.and_utc().timestamp();
+
+        let metric_str = match metric {
+            Metric::UniqueVisitors => "visitors",
+            Metric::Visits => "visits",
+            Metric::Pageviews => "pageviews",
+        };
 
         let (start_ts, end_ts, period_name) = match timeframe {
             TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
@@ -563,10 +570,10 @@ impl StatisticsAggregator {
                     "SELECT country, visitors, visits, pageviews
                      FROM country_aggregated_metrics
                      WHERE period_name = ?
-                     ORDER BY visitors DESC"
+                     ORDER BY ? DESC"
                 )?;
 
-                let metrics = stmt.query_map([period_name], |row| {
+                let metrics = stmt.query_map(params![period_name, metric_str], |row| {
                     Ok(CountryMetrics {
                         country: row.get(0)?,
                         visitors: row.get(1)?,

@@ -169,10 +169,11 @@ impl EventHandler {
     async fn check_and_create_visit(
         &self,
         visitor_id: &str,
-        timestamp: i64,
+        event: &Event,
     ) -> Result<(), tokio_rusqlite::Error> {
         let visitor_id_clone: String = visitor_id.to_string();
         let visitor_id_for_query = visitor_id_clone.clone();
+        let timestamp = event.timestamp;
         let result = self
             .state
             .db
@@ -215,24 +216,24 @@ impl EventHandler {
         if result {
             let visit_event = Event {
                 event_type: "visit".to_string(),
-                page_url: "".to_string(),
-                referrer: None,
-                browser: "".to_string(),
-                operating_system: "".to_string(),
-                device_type: "".to_string(),
-                country: None,
-                region: None,
-                city: None,
-                utm_source: None,
-                utm_medium: None,
-                utm_campaign: None,
-                utm_content: None,
-                utm_term: None,
-                timestamp,
+                page_url: event.page_url.clone(),
+                referrer: event.referrer.clone(),
+                browser: event.browser.clone(),
+                operating_system: event.operating_system.clone(),
+                device_type: event.device_type.clone(),
+                country: event.country.clone(),
+                region: event.region.clone(),
+                city: event.city.clone(),
+                utm_source: event.utm_source.clone(),
+                utm_medium: event.utm_medium.clone(),
+                utm_campaign: event.utm_campaign.clone(),
+                utm_content: event.utm_content.clone(),
+                utm_term: event.utm_term.clone(),
+                timestamp: event.timestamp,
                 visitor_id: Some(visitor_id_clone.to_string()),
-                custom_params: None,
+                custom_params: event.custom_params.clone(),
                 is_active: 1,
-                last_activity_at: timestamp,
+                last_activity_at: event.timestamp,
             };
 
             self.save_event(&visit_event, None).await?;
@@ -271,10 +272,7 @@ impl EventHandler {
         event.timestamp = self.get_current_timestamp();
 
         // Check and create visit event if needed
-        if let Err(e) = self
-            .check_and_create_visit(&visitor_id, event.timestamp)
-            .await
-        {
+        if let Err(e) = self.check_and_create_visit(&visitor_id, &event).await {
             warn!(error = %e, "Failed to check and create visit event");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
