@@ -188,7 +188,7 @@ impl StatisticsAggregator {
     }
 
     async fn aggregate_minute_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
-        let five_minutes_ago = now - chrono::Duration::minutes(5);
+        let five_minutes_ago = now - chrono::Duration::days(2);
         self.aggregate_stats_for_period("minute", 60, five_minutes_ago.timestamp()).await
     }
 
