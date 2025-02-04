@@ -41,7 +41,7 @@ impl StatisticsAggregator {
 
         self.db
             .call(move |conn| {
-                conn.execute("UPDATE events SET is_active = 1 WHERE event_type = 'visit' AND last_activity_at >= ?", [active_threshold.timestamp()])?;
+                conn.execute("UPDATE events SET is_active = 0 WHERE event_type = 'visit' AND last_activity_at < ?", [active_threshold.timestamp()])?;
                 Ok(())
             })
             .await
