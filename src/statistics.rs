@@ -113,6 +113,7 @@ impl StatisticsAggregator {
     async fn aggregate_stats_for_period(
         &self,
         period_type: &str,
+        time_division: i64,
         start_timestamp: i64,
     ) -> Result<(), tokio_rusqlite::Error> {
         let period_type = period_type.to_string();
@@ -122,7 +123,7 @@ impl StatisticsAggregator {
                     "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
                      SELECT 
                         ?1 as period_type,
-                        timestamp as period_start,
+                        (timestamp / ?2) * ?2 as period_start,
                         COUNT(DISTINCT visitor_id) as unique_visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
@@ -130,22 +131,7 @@ impl StatisticsAggregator {
                      FROM events 
                      WHERE timestamp >= ?2
                      GROUP BY period_start",
-                    params![period_type.to_string(), start_timestamp],
-                )?;
-
-                conn.execute(
-                    "INSERT OR IGNORE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
-                    SELECT 
-                        ?1 as period_type,
-                        0 as period_start,
-                        0 as unique_visitors, 
-                        0 as total_visits,
-                        0 as total_pageviews,
-                        strftime('%s', 'now') as created_at
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM statistics WHERE period_type = ?1
-                    )",
-                    [period_type.to_string()],
+                    params![period_type.to_string(), time_division, start_timestamp],
                 )?;
 
                 conn.execute(
@@ -154,7 +140,7 @@ impl StatisticsAggregator {
                     )
                     SELECT 
                         ?1 as period_type,
-                        timestamp as period_start,
+                        (timestamp / ?2) * ?2 as period_start,
                         country,
                         region,
                         city,
@@ -165,7 +151,7 @@ impl StatisticsAggregator {
                     FROM events
                     WHERE timestamp >= ?2 AND country IS NOT NULL
                     GROUP BY period_start, country, region, city",
-                    params![period_type.to_string(), start_timestamp],
+                    params![period_type.to_string(), time_division, start_timestamp],
                 )?;
 
                 // Add device statistics
@@ -176,7 +162,7 @@ impl StatisticsAggregator {
                     )
                     SELECT 
                         ?1 as period_type,
-                        timestamp as period_start,
+                        (timestamp / ?2) * ?2 as period_start,
                         browser,
                         operating_system,
                         device_type,
@@ -187,7 +173,7 @@ impl StatisticsAggregator {
                     FROM events
                     WHERE timestamp >= ?2 AND browser IS NOT NULL
                     GROUP BY period_start, browser, operating_system, device_type",
-                    params![period_type.to_string(), start_timestamp],
+                    params![period_type.to_string(), time_division, start_timestamp],
                 )?;
                 Ok(())
             })
@@ -196,22 +182,22 @@ impl StatisticsAggregator {
 
     async fn aggregate_active_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let thirty_minutes_ago = now - chrono::Duration::minutes(30);
-        self.aggregate_stats_for_period("realtime", thirty_minutes_ago.timestamp()).await
+        self.aggregate_stats_for_period("realtime", 60, thirty_minutes_ago.timestamp()).await
     }
 
     async fn aggregate_minute_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let five_minutes_ago = now - chrono::Duration::minutes(5);
-        self.aggregate_stats_for_period("minute", five_minutes_ago.timestamp()).await
+        self.aggregate_stats_for_period("minute", 60, five_minutes_ago.timestamp()).await
     }
 
     async fn aggregate_hourly_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let day_ago = now - chrono::Duration::days(1);
-        self.aggregate_stats_for_period("hour", day_ago.timestamp()).await
+        self.aggregate_stats_for_period("hour", 3600, day_ago.timestamp()).await
     }
 
     async fn aggregate_daily_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let month_ago = now - chrono::Duration::days(30);
-        self.aggregate_stats_for_period("day", month_ago.timestamp()).await
+        self.aggregate_stats_for_period("day", 86400, month_ago.timestamp()).await
     }
 
     async fn aggregate_period_metrics(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
