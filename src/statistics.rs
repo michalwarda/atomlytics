@@ -402,8 +402,11 @@ impl StatisticsAggregator {
         location_grouping: LocationGrouping,
         device_grouping: DeviceGrouping,
     ) -> Result<Statistics, tokio_rusqlite::Error> {
-        let now = Utc::now();
-        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let now = Utc::now()
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap();        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
         let today_end = today_start + chrono::Duration::days(1);
         let today_end_ts = today_end.and_utc().timestamp();
@@ -567,8 +570,11 @@ impl StatisticsAggregator {
         metric: &Metric,
         grouping: LocationGrouping,
     ) -> Result<Vec<LocationMetrics>, tokio_rusqlite::Error> {
-        let now = Utc::now();
-        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let now = Utc::now()
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap();        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
         let today_end = today_start + chrono::Duration::days(1);
         let today_end_ts = today_end.and_utc().timestamp();
@@ -651,8 +657,11 @@ impl StatisticsAggregator {
         metric: &Metric,
         grouping: DeviceGrouping,
     ) -> Result<Vec<DeviceMetrics>, tokio_rusqlite::Error> {
-        let now = Utc::now();
-        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let now = Utc::now()
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap();        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let today_start_ts = today_start.and_utc().timestamp();
         let today_end = today_start + chrono::Duration::days(1);
         let today_end_ts = today_end.and_utc().timestamp();
@@ -697,6 +706,8 @@ impl StatisticsAggregator {
                     group_by_clause, metric_str
                 );
 
+                println!("Start: {}", start_ts);
+                println!("End: {}", end_ts);
                 let mut stmt = conn.prepare(&query)?;
 
                 let metrics = stmt.query_map(params![period_name.unwrap_or(""), start_ts, end_ts], |row| {
