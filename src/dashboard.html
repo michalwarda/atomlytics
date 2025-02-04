@@ -21,7 +21,7 @@
             margin-bottom: 30px;
             position: relative;
             width: 100%;
-            padding-bottom: 57.14%; /* (4/7 = 0.5714) * 100% */
+            padding-bottom: 42.85%; /* Changed from 57.14% to make graph smaller (3/7 ratio) */
         }
         .graph canvas {
             position: absolute;
@@ -80,6 +80,33 @@
             font-weight: bold;
             color: #333;
         }
+        .countries-table {
+            width: 300px;
+            margin: 20px auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .countries-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .countries-table th {
+            background: #f5f5f5;
+            padding: 12px;
+            text-align: left;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 1px solid #ddd;
+        }
+        .countries-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        .countries-table tr:last-child td {
+            border-bottom: none;
+        }
     </style>
 </head>
 <body>
@@ -137,6 +164,21 @@
 
         <div class="graph">
             <canvas id="statsGraph"></canvas>
+        </div>
+
+        <!-- Add countries table -->
+        <div class="countries-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Country</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody id="countries-data">
+                    <!-- Data will be populated by JavaScript -->
+                </tbody>
+            </table>
         </div>
     </div>
 
@@ -201,6 +243,38 @@
             document.getElementById('total-visits').textContent = data.aggregates.total_visits;
             document.getElementById('total-pageviews').textContent = data.aggregates.total_pageviews;
             document.getElementById('current-visits').textContent = data.realtime_aggregates.current_visits;
+
+            // Update countries table
+            const countriesTableBody = document.getElementById('countries-data');
+            countriesTableBody.innerHTML = '';
+            
+            if (data.country_metrics) {
+                data.country_metrics
+                    .forEach(({country, visitors, visits, pageviews}) => {
+                        const row = document.createElement('tr');
+                        const metric = document.getElementById('metric').value;
+                        let value = visitors; // default to visitors
+                        
+                        // Choose the right metric based on selection
+                        switch(metric) {
+                            case 'UniqueVisitors':
+                                value = visitors;
+                                break;
+                            case 'Visits':
+                                value = visits;
+                                break;
+                            case 'Pageviews':
+                                value = pageviews;
+                                break;
+                        }
+                        
+                        row.innerHTML = `
+                            <td>${country}</td>
+                            <td>${value}</td>
+                        `;
+                        countriesTableBody.appendChild(row);
+                    });
+            }
         }
 
         let chart;
