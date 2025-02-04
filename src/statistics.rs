@@ -80,6 +80,7 @@ impl StatisticsAggregator {
             conn.execute("DELETE FROM aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
             conn.execute("DELETE FROM location_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
             conn.execute("DELETE FROM device_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
+            conn.execute("DELETE FROM source_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
             Ok(())
         }).await?;
         Ok(())
@@ -101,6 +102,7 @@ impl StatisticsAggregator {
                 conn.execute("DELETE FROM aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
                 conn.execute("DELETE FROM location_aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
                 conn.execute("DELETE FROM device_aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
+                conn.execute("DELETE FROM source_aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
                 Ok(())
             }).await?;
         }
@@ -427,6 +429,24 @@ impl StatisticsAggregator {
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
                     GROUP BY browser, operating_system, device_type",
+                    [&thirty_minutes_ago, &now.timestamp(), &thirty_minutes_ago, &now.timestamp()],
+                )?;
+
+                // Add source metrics
+                conn.execute(
+                    "INSERT OR REPLACE INTO source_aggregated_metrics 
+                    (period_name, start_ts, end_ts, source, referrer, utm_source, utm_medium, utm_campaign,
+                     visitors, visits, pageviews, created_at)
+                    SELECT 
+                        'realtime', ?, ?, 
+                        COALESCE(source, 'Direct') as source,
+                        COALESCE(referrer, 'Unknown') as referrer,
+                        COALESCE(utm_source, 'Unknown') as utm_source,
+                        COALESCE(utm_medium, 'Unknown') as utm_medium,
+                        COALESCE(utm_campaign, 'Unknown') as utm_campaign,
+                        strftime('%s', 'now')
+                    FROM events 
+                    WHERE timestamp >= ? AND timestamp <= ?",
                     [&thirty_minutes_ago, &now.timestamp(), &thirty_minutes_ago, &now.timestamp()],
                 )?;
                 Ok(())
