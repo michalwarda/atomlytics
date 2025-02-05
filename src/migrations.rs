@@ -424,6 +424,21 @@ fn get_migrations() -> Vec<Migration> {
             )?;
             Ok(())
         }),
+        Migration::new("Add avg_visit_duration to statistics tables", 13, |conn| {
+            // Add avg_visit_duration to statistics table
+            conn.execute(
+                "ALTER TABLE statistics ADD COLUMN avg_visit_duration INTEGER",
+                [],
+            )?;
+
+            // Add avg_visit_duration to aggregated_metrics table
+            conn.execute(
+                "ALTER TABLE aggregated_metrics ADD COLUMN avg_visit_duration INTEGER",
+                [],
+            )?;
+
+            Ok(())
+        }),
     ]
 }
 

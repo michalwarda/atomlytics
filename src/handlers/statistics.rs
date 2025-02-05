@@ -89,6 +89,7 @@ pub struct AggregateMetrics {
     pub total_visits: i64,
     pub total_pageviews: i64,
     pub current_visits: Option<i64>,
+    pub avg_visit_duration: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -213,17 +214,25 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO statistics (period_type, period_start, unique_visitors, total_visits, total_pageviews, created_at)
-                     SELECT 
+                    "INSERT OR REPLACE INTO statistics (
+                        period_type, period_start, unique_visitors, total_visits, 
+                        total_pageviews, avg_visit_duration, created_at
+                    )
+                    SELECT 
                         ?1 as period_type,
                         (timestamp / ?2) * ?2 as period_start,
                         COUNT(DISTINCT visitor_id) as unique_visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
+                        AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) as avg_visit_duration,
                         strftime('%s', 'now') as created_at
-                     FROM events 
-                     WHERE timestamp >= ?3
-                     GROUP BY period_start",
+                    FROM events 
+                    WHERE timestamp >= ?3
+                    GROUP BY period_start",
                     params![period_type.to_string(), time_division, start_timestamp],
                 )?;
 
@@ -370,7 +379,7 @@ impl StatisticsAggregator {
                     WHERE timestamp >= ? AND timestamp <= ?"
                 } else {
                     "INSERT OR REPLACE INTO aggregated_metrics 
-                    (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, created_at)
+                    (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, avg_visit_duration, created_at)
                     SELECT 
                         ?,
                         ?,
@@ -378,6 +387,11 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id),
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                        CAST(AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) AS INTEGER) as avg_visit_duration,
                         strftime('%s', 'now')
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ?"
@@ -467,7 +481,12 @@ impl StatisticsAggregator {
                     "SELECT 
                         COUNT(DISTINCT visitor_id) as unique_visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
+                        AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) as avg_visit_duration
                      FROM events 
                      WHERE timestamp >= ? AND timestamp <= ?"
                 )?;
@@ -478,6 +497,7 @@ impl StatisticsAggregator {
                         total_visits: row.get(1)?,
                         total_pageviews: row.get(2)?,
                         current_visits: None,
+                        avg_visit_duration: row.get(3)?,
                     })
                 })?;
                 
@@ -521,7 +541,7 @@ impl StatisticsAggregator {
                 self.db
                     .call(move |conn| {
                         let mut stmt = conn.prepare(
-                            "SELECT unique_visitors, total_visits, total_pageviews 
+                            "SELECT unique_visitors, total_visits, total_pageviews, avg_visit_duration 
                              FROM aggregated_metrics 
                              WHERE period_name = ?
                              "
@@ -533,6 +553,7 @@ impl StatisticsAggregator {
                                 total_visits: row.get(1)?,
                                 total_pageviews: row.get(2)?,
                                 current_visits: None,
+                                avg_visit_duration: row.get(3)?,
                             })
                         })?)
                     })
@@ -654,6 +675,7 @@ impl StatisticsAggregator {
                         total_visits: row.get(1)?,
                         total_pageviews: row.get(2)?,
                         current_visits: row.get(3)?,
+                        avg_visit_duration: None,
                     })
                 })?)
             })

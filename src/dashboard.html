@@ -175,6 +175,10 @@
                 <h3>Total Pageviews</h3>
                 <p id="total-pageviews">-</p>
             </div>
+            <div class="metric">
+                <h3>Avg Visit Duration</h3>
+                <p id="avg-visit-duration">-</p>
+            </div>
         </div>
 
         <div class="graph">
@@ -323,6 +327,25 @@
             document.getElementById('total-visits').textContent = data.aggregates.total_visits;
             document.getElementById('total-pageviews').textContent = data.aggregates.total_pageviews;
             document.getElementById('current-visits').textContent = data.realtime_aggregates.current_visits;
+            
+            // Format and display average visit duration
+            const avgDuration = data.aggregates.avg_visit_duration;
+            let durationText = '-';
+            if (avgDuration) {
+                if (avgDuration < 60) {
+                    durationText = `${avgDuration}s`;
+                } else if (avgDuration < 3600) {
+                    const minutes = Math.floor(avgDuration / 60);
+                    const seconds = avgDuration % 60;
+                    durationText = `${minutes}m ${seconds}s`;
+                } else {
+                    const hours = Math.floor(avgDuration / 3600);
+                    const minutes = Math.floor((avgDuration % 3600) / 60);
+                    durationText = `${hours}h ${minutes}m`;
+                }
+            }
+            document.getElementById('avg-visit-duration').textContent = durationText;
+            
             document.getElementById('location-grouping-label').textContent = document.getElementById('location-grouping').value;
             document.getElementById('device-grouping-label').textContent = document.getElementById('device-grouping').value;
             document.getElementById('source-grouping-label').textContent = document.getElementById('source-grouping').value;
