@@ -804,6 +804,20 @@
                             tooltip: {
                                 mode: 'index',
                                 intersect: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        let value = context.raw;
+                                        const metric = context.dataset.label;
+                                        
+                                        if (metric === 'BounceRate') {
+                                            return `${metric}: ${value}%`;
+                                        } else if (metric === 'AvgVisitDuration') {
+                                            return `${metric}: ${formatDuration(value)}`;
+                                        }
+                                        
+                                        return `${metric}: ${value}`;
+                                    }
+                                }
                             }
                         },
                         interaction: {
