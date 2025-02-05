@@ -4,9 +4,12 @@
   let lastPageviewUrl = null;
   let endpoint = null;
 
+  // Handle existing queue
+  const existingQueue = (window.atomlytics && window.atomlytics.q) || [];
+
   // Initialize the analytics
   function initAtomlytics() {
-    if (window.atomlytics) {
+    if (window.atomlytics && !Array.isArray(window.atomlytics)) {
       return window.atomlytics;
     }
 
@@ -59,6 +62,15 @@
   // Create instance
   const instance = initAtomlytics();
 
+  // Replace any existing queue with the real implementation
+  window.atomlytics = instance;
+
+  // Process existing queue
+  for (let i = 0; i < existingQueue.length; i++) {
+    const [eventName, props] = existingQueue[i];
+    trackEvent(eventName, props);
+  }
+
   // Monkey patch history.pushState to track page views
   const originalPushState = window.history.pushState;
   window.history.pushState = function () {
@@ -78,9 +90,6 @@
   window.addEventListener("popstate", () => {
     instance.track("pageview");
   });
-
-  // Add to window
-  window.atomlytics = instance;
 
   // Auto-track page views
   document.addEventListener("DOMContentLoaded", () => {

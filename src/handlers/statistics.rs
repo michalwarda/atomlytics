@@ -331,128 +331,30 @@ impl StatisticsAggregator {
             ("last_30_days", today_start_ts - 30 * 86400, today_start_ts),
         ];
 
-        self.db
-            .call(move |conn| {
-                for (period_name, start_ts, end_ts) in periods {
-                    conn.execute(
-                        "INSERT OR REPLACE INTO aggregated_metrics 
-                        (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, created_at)
-                        SELECT 
-                            ?,
-                            ?,
-                            ?,
-                            COUNT(DISTINCT visitor_id),
-                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                            strftime('%s', 'now')
-                        FROM events 
-                        WHERE timestamp >= ? AND timestamp <= ?",
-                        params![
-                            period_name,
-                            &start_ts,
-                            &end_ts,
-                            &start_ts,
-                            &end_ts,
-                        ],
-                    )?;
+        for (period_name, start_ts, end_ts) in periods {
+            self.aggregate_metrics_for_period(period_name, start_ts, end_ts, None).await?;
+        }
 
-                    // Add location metrics
-                    conn.execute(
-                        "INSERT OR REPLACE INTO location_aggregated_metrics 
-                        (period_name, start_ts, end_ts, country, region, city, visitors, visits, pageviews, created_at)
-                        SELECT 
-                            ?,
-                            ?,
-                            ?,
-                            COALESCE(country, 'Unknown') as country,
-                            COALESCE(region, 'Unknown') as region,
-                            COALESCE(city, 'Unknown') as city,
-                            COUNT(DISTINCT visitor_id),
-                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                            strftime('%s', 'now')
-                        FROM events 
-                        WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
-                        GROUP BY country, region, city",
-                        params![
-                            period_name,
-                            &start_ts,
-                            &end_ts,
-                            &start_ts,
-                            &end_ts,
-                        ],
-                    )?;
-
-                    // Add device metrics
-                    conn.execute(
-                        "INSERT OR REPLACE INTO device_aggregated_metrics 
-                        (period_name, start_ts, end_ts, browser, operating_system, device_type,
-                         visitors, visits, pageviews, created_at)
-                        SELECT 
-                            ?,
-                            ?,
-                            ?,
-                            COALESCE(browser, 'Unknown') as browser,
-                            COALESCE(operating_system, 'Unknown') as operating_system,
-                            COALESCE(device_type, 'Unknown') as device_type,
-                            COUNT(DISTINCT visitor_id),
-                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                            strftime('%s', 'now')
-                        FROM events 
-                        WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
-                        GROUP BY browser, operating_system, device_type",
-                        params![
-                            period_name,
-                            &start_ts,
-                            &end_ts,
-                            &start_ts,
-                            &end_ts,
-                        ],
-                    )?;
-
-                    // Add source metrics
-                    conn.execute(
-                        "INSERT OR REPLACE INTO source_aggregated_metrics 
-                        (period_name, start_ts, end_ts, source, referrer, utm_source, utm_medium, utm_campaign,
-                         visitors, visits, pageviews, created_at)
-                        SELECT 
-                            ?,
-                            ?,
-                            ?,
-                            COALESCE(source, 'Direct') as source,
-                            COALESCE(referrer, 'Unknown') as referrer,
-                            COALESCE(utm_source, 'Unknown') as utm_source,
-                            COALESCE(utm_medium, 'Unknown') as utm_medium,
-                            COALESCE(utm_campaign, 'Unknown') as utm_campaign,
-                            COUNT(DISTINCT visitor_id),
-                            COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                            COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                            strftime('%s', 'now')
-                        FROM events 
-                        WHERE timestamp >= ? AND timestamp <= ?
-                        GROUP BY source, referrer, utm_source, utm_medium, utm_campaign",
-                        params![
-                            period_name,
-                            &start_ts,
-                            &end_ts,
-                            &start_ts,
-                            &end_ts,
-                        ],
-                    )?;
-                }
-
-                Ok(())
-            })
-            .await
+        Ok(())
     }
 
     async fn aggregate_active_period_metrics(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
         let thirty_minutes_ago = now.timestamp() - 30 * 60;
+        self.aggregate_metrics_for_period("realtime", thirty_minutes_ago, now.timestamp(), Some(true)).await
+    }
 
+    async fn aggregate_metrics_for_period(
+        &self,
+        period_name: &str,
+        start_ts: i64,
+        end_ts: i64,
+        include_current_visits: Option<bool>,
+    ) -> Result<(), tokio_rusqlite::Error> {
+        let period_name = period_name.to_string();
         self.db
             .call(move |conn| {
-                conn.execute(
+                // Base metrics query
+                let metrics_query = if include_current_visits == Some(true) {
                     "INSERT OR REPLACE INTO aggregated_metrics 
                     (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, current_visits, created_at)
                     SELECT 
@@ -465,22 +367,35 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' AND is_active = 1 THEN id ELSE NULL END),
                         strftime('%s', 'now')
                     FROM events 
-                    WHERE timestamp >= ? AND timestamp <= ?",
-                    params![
-                        "realtime",
-                        &thirty_minutes_ago,
-                        &now.timestamp(),
-                        &thirty_minutes_ago,
-                        &now.timestamp(),
-                    ],
+                    WHERE timestamp >= ? AND timestamp <= ?"
+                } else {
+                    "INSERT OR REPLACE INTO aggregated_metrics 
+                    (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, created_at)
+                    SELECT 
+                        ?,
+                        ?,
+                        ?,
+                        COUNT(DISTINCT visitor_id),
+                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                        strftime('%s', 'now')
+                    FROM events 
+                    WHERE timestamp >= ? AND timestamp <= ?"
+                };
+
+                conn.execute(
+                    metrics_query,
+                    params![period_name, start_ts, end_ts, start_ts, end_ts],
                 )?;
 
-                // Add location metrics
+                // Location metrics
                 conn.execute(
                     "INSERT OR REPLACE INTO location_aggregated_metrics 
                     (period_name, start_ts, end_ts, country, region, city, visitors, visits, pageviews, created_at)
                     SELECT 
-                        'realtime', ?, ?, 
+                        ?,
+                        ?,
+                        ?,
                         COALESCE(country, 'Unknown') as country,
                         COALESCE(region, 'Unknown') as region,
                         COALESCE(city, 'Unknown') as city,
@@ -491,16 +406,18 @@ impl StatisticsAggregator {
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
                     GROUP BY country, region, city",
-                    [&thirty_minutes_ago, &now.timestamp(), &thirty_minutes_ago, &now.timestamp()],
+                    params![period_name, start_ts, end_ts, start_ts, end_ts],
                 )?;
 
-                // Add device metrics
+                // Device metrics
                 conn.execute(
                     "INSERT OR REPLACE INTO device_aggregated_metrics 
                     (period_name, start_ts, end_ts, browser, operating_system, device_type,
                      visitors, visits, pageviews, created_at)
                     SELECT 
-                        'realtime', ?, ?, 
+                        ?,
+                        ?,
+                        ?,
                         COALESCE(browser, 'Unknown') as browser,
                         COALESCE(operating_system, 'Unknown') as operating_system,
                         COALESCE(device_type, 'Unknown') as device_type,
@@ -511,16 +428,18 @@ impl StatisticsAggregator {
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
                     GROUP BY browser, operating_system, device_type",
-                    [&thirty_minutes_ago, &now.timestamp(), &thirty_minutes_ago, &now.timestamp()],
+                    params![period_name, start_ts, end_ts, start_ts, end_ts],
                 )?;
 
-                // Add source metrics
+                // Source metrics
                 conn.execute(
                     "INSERT OR REPLACE INTO source_aggregated_metrics 
                     (period_name, start_ts, end_ts, source, referrer, utm_source, utm_medium, utm_campaign,
                      visitors, visits, pageviews, created_at)
                     SELECT 
-                        'realtime', ?, ?, 
+                        ?,
+                        ?,
+                        ?,
                         COALESCE(source, 'Direct') as source,
                         COALESCE(referrer, 'Unknown') as referrer,
                         COALESCE(utm_source, 'Unknown') as utm_source,
@@ -533,8 +452,9 @@ impl StatisticsAggregator {
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ?
                     GROUP BY source, referrer, utm_source, utm_medium, utm_campaign",
-                    [&thirty_minutes_ago, &now.timestamp(), &thirty_minutes_ago, &now.timestamp()],
+                    params![period_name, start_ts, end_ts, start_ts, end_ts],
                 )?;
+
                 Ok(())
             })
             .await
