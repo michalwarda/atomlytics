@@ -4,13 +4,13 @@ use chrono::{Timelike, Utc};
 use rusqlite::params;
 use tokio_rusqlite::Connection;
 
-use super::{LocationGrouping, LocationMetrics, Metric, TimeFrame};
+use super::{DeviceGrouping, DeviceMetrics, Metric, TimeFrame};
 
-pub struct LocationMetricsAggregator {
+pub struct DeviceMetricsAggregator {
     db: Arc<Connection>,
 }
 
-impl LocationMetricsAggregator {
+impl DeviceMetricsAggregator {
     pub fn new(db: Arc<Connection>) -> Self {
         Self { db }
     }
@@ -20,7 +20,7 @@ impl LocationMetricsAggregator {
         thirty_minutes_ago_ts: i64,
     ) -> Result<(), tokio_rusqlite::Error> {
         self.db.call(move |conn| {
-            conn.execute("DELETE FROM location_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
+            conn.execute("DELETE FROM device_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
             Ok(())
         }).await
     }
@@ -35,16 +35,16 @@ impl LocationMetricsAggregator {
 
         self.db.call(move |conn| {
             conn.execute(
-                "INSERT OR REPLACE INTO location_statistics (
-                    period_type, period_start, country, region, city, 
-                    visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at
+                "INSERT OR REPLACE INTO device_statistics (
+                        period_type, period_start, browser, operating_system, device_type, 
+                        visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at
                 )
                 SELECT 
                     ?1 as period_type,
                     (timestamp / ?2) * ?2 as period_start,
-                    COALESCE(country, 'Unknown') as country,
-                    COALESCE(region, 'Unknown') as region,
-                    COALESCE(city, 'Unknown') as city,
+                    COALESCE(browser, 'Unknown') as browser,
+                    COALESCE(operating_system, 'Unknown') as operating_system,
+                    COALESCE(device_type, 'Unknown') as device_type,
                     COUNT(DISTINCT visitor_id) as visitors,
                     COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
                     COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
@@ -60,7 +60,7 @@ impl LocationMetricsAggregator {
                     strftime('%s', 'now') as created_at
                 FROM events
                 WHERE timestamp >= ?3
-                GROUP BY period_start, country, region, city",
+                GROUP BY period_start, browser, operating_system, device_type",
                 params![period_type, time_division, start_timestamp],
             )?;
             Ok(())
@@ -77,15 +77,15 @@ impl LocationMetricsAggregator {
         self.db.call(move |conn| {
                 // Location metrics
                 conn.execute(
-                    "INSERT OR REPLACE INTO location_aggregated_metrics 
-                    (period_name, start_ts, end_ts, country, region, city, visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at)
+                    "INSERT OR REPLACE INTO device_aggregated_metrics 
+                    (period_name, start_ts, end_ts, browser, operating_system, device_type, visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at)
                     SELECT 
                         ?,
                         ?,
                         ?,
-                        COALESCE(country, 'Unknown') as country,
-                        COALESCE(region, 'Unknown') as region,
-                        COALESCE(city, 'Unknown') as city,
+                        COALESCE(browser, 'Unknown') as browser,
+                        COALESCE(operating_system, 'Unknown') as operating_system,
+                        COALESCE(device_type, 'Unknown') as device_type,
                         COUNT(DISTINCT visitor_id),
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
@@ -101,7 +101,7 @@ impl LocationMetricsAggregator {
                         strftime('%s', 'now') as created_at
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ?
-                    GROUP BY country, region, city",
+                    GROUP BY browser, operating_system, device_type",
                     params![period_name, start_ts, end_ts, start_ts, end_ts],
                 )?;
                 Ok(())
@@ -112,8 +112,8 @@ impl LocationMetricsAggregator {
         &self,
         timeframe: &TimeFrame,
         metric: &Metric,
-        grouping: LocationGrouping,
-    ) -> Result<Vec<LocationMetrics>, tokio_rusqlite::Error> {
+        grouping: DeviceGrouping,
+    ) -> Result<Vec<DeviceMetrics>, tokio_rusqlite::Error> {
         let now = Utc::now()
             .with_second(0)
             .unwrap()
@@ -154,24 +154,24 @@ impl LocationMetricsAggregator {
         };
 
         let group_by_clause = match grouping {
-            LocationGrouping::Country => "country",
-            LocationGrouping::Region => "region",
-            LocationGrouping::City => "city",
+            DeviceGrouping::Browser => "browser",
+            DeviceGrouping::OperatingSystem => "operating_system",
+            DeviceGrouping::DeviceType => "device_type",
         };
 
         self.db
             .call(move |conn| {
                 let query = format!(
                     "SELECT 
-                        country,
-                        region,
-                        city,
+                        browser,
+                        operating_system,
+                        device_type,
                         SUM(visitors) as visitors,
                         SUM(visits) as visits,
                         SUM(pageviews) as pageviews,
                         CAST(AVG(avg_visit_duration) AS INTEGER) as avg_visit_duration,
                         CAST(AVG(bounce_rate) AS INTEGER) as bounce_rate
-                     FROM location_aggregated_metrics
+                     FROM device_aggregated_metrics
                      WHERE period_name = ?
                      AND start_ts >= ?
                      AND end_ts <= ?
@@ -204,10 +204,10 @@ impl LocationMetricsAggregator {
                             };
 
                             if value > 0 {
-                                Ok(Some(LocationMetrics {
-                                    country: row.get(0)?,
-                                    region: row.get(1)?,
-                                    city: row.get(2)?,
+                                Ok(Some(DeviceMetrics {
+                                    browser: row.get(0)?,
+                                    operating_system: row.get(1)?,
+                                    device_type: row.get(2)?,
                                     visitors,
                                     visits,
                                     pageviews,

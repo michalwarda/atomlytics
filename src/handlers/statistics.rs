@@ -7,6 +7,9 @@ use serde::Serialize;
 use tokio_rusqlite::Connection;
 use tracing::error;
 
+use crate::aggregators::device_metrics_aggregator::DeviceMetricsAggregator;
+use crate::aggregators::location_metrics_aggregator::LocationMetricsAggregator;
+use crate::aggregators::source_metrics_aggregator::SourceMetricsAggregator;
 use crate::aggregators::AggregateMetrics;
 use crate::aggregators::DeviceGrouping;
 use crate::aggregators::DeviceMetrics;
@@ -16,11 +19,8 @@ use crate::aggregators::LocationMetrics;
 use crate::aggregators::Metric;
 use crate::aggregators::SourceGrouping;
 use crate::aggregators::SourceMetrics;
-use crate::aggregators::SourceMetricsAggregator;
 use crate::aggregators::TimeFrame;
 use crate::AppState;
-use crate::aggregators::location_metrics_aggregator::LocationMetricsAggregator;
-use crate::aggregators::device_metrics_aggregator::DeviceMetricsAggregator;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
