@@ -68,7 +68,6 @@ impl StatisticsAggregator {
         self.aggregate_hourly_stats(now).await?;
         self.aggregate_daily_stats(now).await?;
         self.aggregate_period_metrics(now).await?;
-        self.remove_unused_aggregated_metrics(now).await?;
         Ok(())
     }
 
@@ -83,30 +82,6 @@ impl StatisticsAggregator {
             conn.execute("DELETE FROM source_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
             Ok(())
         }).await?;
-        Ok(())
-    }
-
-    async fn remove_unused_aggregated_metrics(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
-        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let today_start_ts = today_start.and_utc().timestamp();
-
-        let periods = vec![
-            ("today", today_start_ts),
-            ("yesterday", today_start_ts - 86400),
-            ("last_7_days", today_start_ts - 7 * 86400),
-            ("last_30_days", today_start_ts - 30 * 86400),
-        ];
-
-        for (period_name, start_ts) in periods {
-            self.db.call(move |conn| {
-                conn.execute("DELETE FROM aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
-                conn.execute("DELETE FROM location_aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
-                conn.execute("DELETE FROM device_aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
-                conn.execute("DELETE FROM source_aggregated_metrics WHERE period_name = ? AND start_ts < ?", params![period_name, start_ts])?;
-                Ok(())
-            }).await?;
-        }
-
         Ok(())
     }
 
@@ -227,7 +202,7 @@ impl StatisticsAggregator {
     }
 
     async fn aggregate_hourly_stats(&self, now: DateTime<Utc>) -> Result<(), tokio_rusqlite::Error> {
-        let day_ago = now - chrono::Duration::days(1);
+        let day_ago = now - chrono::Duration::days(5);
         self.aggregate_stats_for_period("hour", 3600, day_ago.timestamp()).await
     }
 
