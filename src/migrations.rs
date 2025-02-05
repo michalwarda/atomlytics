@@ -473,6 +473,54 @@ fn get_migrations() -> Vec<Migration> {
                 Ok(())
             },
         ),
+        Migration::new("Add bounce_rate to statistics tables", 15, |conn| {
+            // Add bounce_rate to statistics table
+            conn.execute("ALTER TABLE statistics ADD COLUMN bounce_rate INTEGER", [])?;
+
+            // Add bounce_rate to aggregated_metrics table
+            conn.execute(
+                "ALTER TABLE aggregated_metrics ADD COLUMN bounce_rate INTEGER",
+                [],
+            )?;
+
+            // Add bounce_rate to location_statistics table
+            conn.execute(
+                "ALTER TABLE location_statistics ADD COLUMN bounce_rate INTEGER",
+                [],
+            )?;
+
+            // Add bounce_rate to location_aggregated_metrics table
+            conn.execute(
+                "ALTER TABLE location_aggregated_metrics ADD COLUMN bounce_rate INTEGER",
+                [],
+            )?;
+
+            // Add bounce_rate to device_statistics table
+            conn.execute(
+                "ALTER TABLE device_statistics ADD COLUMN bounce_rate INTEGER",
+                [],
+            )?;
+
+            // Add bounce_rate to device_aggregated_metrics table
+            conn.execute(
+                "ALTER TABLE device_aggregated_metrics ADD COLUMN bounce_rate INTEGER",
+                [],
+            )?;
+
+            // Add bounce_rate to source_statistics table
+            conn.execute(
+                "ALTER TABLE source_statistics ADD COLUMN bounce_rate INTEGER",
+                [],
+            )?;
+
+            // Add bounce_rate to source_aggregated_metrics table
+            conn.execute(
+                "ALTER TABLE source_aggregated_metrics ADD COLUMN bounce_rate INTEGER",
+                [],
+            )?;
+
+            Ok(())
+        }),
     ]
 }
 

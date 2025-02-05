@@ -136,6 +136,7 @@
                     <option value="Visits">Total Visits</option>
                     <option value="Pageviews">Total Pageviews</option>
                     <option value="AvgVisitDuration">Avg Visit Duration</option>
+                    <option value="BounceRate">Bounce Rate</option>
                 </select>
             </div>
             <div class="filter-group">
@@ -179,6 +180,10 @@
             <div class="metric">
                 <h3>Avg Visit Duration</h3>
                 <p id="avg-visit-duration">-</p>
+            </div>
+            <div class="metric">
+                <h3>Bounce Rate</h3>
+                <p id="bounce-rate">-</p>
             </div>
         </div>
 
@@ -344,8 +349,8 @@
             document.getElementById('total-visits').textContent = data.aggregates.total_visits;
             document.getElementById('total-pageviews').textContent = data.aggregates.total_pageviews;
             document.getElementById('current-visits').textContent = data.realtime_aggregates.current_visits;
-            
             document.getElementById('avg-visit-duration').textContent = formatDuration(data.aggregates.avg_visit_duration);
+            document.getElementById('bounce-rate').textContent = `${data.aggregates.bounce_rate}%`;
             
             document.getElementById('location-grouping-label').textContent = document.getElementById('location-grouping').value;
             document.getElementById('device-grouping-label').textContent = document.getElementById('device-grouping').value;
@@ -376,6 +381,9 @@
                             break;
                         case 'AvgVisitDuration':
                             value = formatDuration(avg_visit_duration);
+                            break;
+                        case 'BounceRate':
+                            value = `${data.aggregates.bounce_rate}%`;
                             break;
                     }
 
@@ -425,6 +433,9 @@
                         case 'AvgVisitDuration':
                             value = formatDuration(avg_visit_duration);
                             break;
+                        case 'BounceRate':
+                            value = `${data.aggregates.bounce_rate}%`;
+                            break;
                     }
 
                     switch(deviceGrouping) {
@@ -472,6 +483,9 @@
                             break;
                         case 'AvgVisitDuration':
                             value = formatDuration(avg_visit_duration);
+                            break;
+                        case 'BounceRate':
+                            value = `${data.aggregates.bounce_rate}%`;
                             break;
                     }
 
