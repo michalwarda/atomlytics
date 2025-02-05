@@ -19,9 +19,9 @@ pub struct Event {
     pub page_url: String,
     #[serde(rename = "n")]
     pub event_type: String,
-    #[serde(rename = "r", default)]
+    #[serde(rename = "p", default)]
     pub custom_params: Option<serde_json::Value>,
-    #[serde(skip_deserializing)]
+    #[serde(rename = "r", default)]
     pub referrer: Option<String>,
     #[serde(skip_deserializing)]
     pub source: Option<String>,
@@ -342,7 +342,11 @@ impl EventHandler {
 
         let ip_str = RemoteIp::get(&headers, &addr);
         let user_agent = self.extract_user_agent(&headers);
-        event.referrer = self.extract_referrer(&headers);
+
+        // Only set referrer from headers if it's not already set from client
+        if event.referrer.is_none() {
+            event.referrer = self.extract_referrer(&headers);
+        }
 
         // Calculate source before saving the event
         let source = self.calculate_source(&event.referrer, &event.utm_source);
