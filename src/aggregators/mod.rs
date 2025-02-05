@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod location_metrics_aggregator;
 pub mod source_metrics_aggregator;
+pub mod device_metrics_aggregator;
 
 pub use location_metrics_aggregator::LocationMetricsAggregator;
 pub use source_metrics_aggregator::SourceMetricsAggregator;
