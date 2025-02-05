@@ -23,6 +23,36 @@
             align-items: center;
             margin-bottom: 30px;
         }
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logo {
+            width: 48px;
+            height: 48px;
+            animation: spin 10s linear infinite;
+        }
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        .logo .electron-orbit {
+            fill: none;
+            stroke: #7c4dff;
+            stroke-width: 1.5;
+            opacity: 0.6;
+        }
+        .logo .nucleus {
+            fill: #7c4dff;
+        }
+        .logo .electron {
+            fill: #7c4dff;
+        }
         .graph {
             margin-top: 40px;
             margin-bottom: 30px;
@@ -248,7 +278,17 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Atomlytics</h1>
+            <div class="logo-container">
+                <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Electron orbit -->
+                    <ellipse class="electron-orbit" cx="50" cy="50" rx="40" ry="40"/>
+                    <!-- Nucleus -->
+                    <circle class="nucleus" cx="50" cy="50" r="8"/>
+                    <!-- Electron -->
+                    <circle class="electron" cx="90" cy="50" r="4"/>
+                </svg>
+                <h1>Atomlytics</h1>
+            </div>
             <div class="filters">
                 <select id="timeframe" onchange="updateFilters()">
                     <option value="Realtime">Realtime</option>
