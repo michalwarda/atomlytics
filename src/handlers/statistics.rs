@@ -622,7 +622,7 @@ impl StatisticsAggregator {
                 self.db
                     .call(move |conn| {
                         let mut stmt = conn.prepare(
-                            "SELECT unique_visitors, total_visits, total_pageviews, avg_visit_duration, bounce_rate 
+                            "SELECT unique_visitors, total_visits, total_pageviews, avg_visit_duration, CAST(bounce_rate AS INTEGER) as bounce_rate 
                              FROM aggregated_metrics 
                              WHERE period_name = ?
                              "
@@ -685,7 +685,7 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT period_start, unique_visitors, total_visits, total_pageviews, avg_visit_duration, bounce_rate
+                    "SELECT period_start, unique_visitors, total_visits, total_pageviews, avg_visit_duration, CAST(bounce_rate AS INTEGER) as bounce_rate
                      FROM statistics 
                      WHERE period_type = ? 
                      AND period_start >= ? 
@@ -748,7 +748,7 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT unique_visitors, total_visits, total_pageviews, current_visits, avg_visit_duration, bounce_rate
+                    "SELECT unique_visitors, total_visits, total_pageviews, current_visits, avg_visit_duration, CAST(bounce_rate AS INTEGER) as bounce_rate
                      FROM aggregated_metrics
                      WHERE period_name = 'realtime'"
                 )?;
@@ -833,8 +833,8 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(3)?;
                     let visits: i64 = row.get(4)?;
                     let pageviews: i64 = row.get(5)?;
-                    let avg_visit_duration: i64 = row.get(6).unwrap_or(0);
-                    let bounce_rate: i64 = row.get(7).unwrap_or(0);
+                    let avg_visit_duration: i64 = row.get(6)?;
+                    let bounce_rate: i64 = row.get(7)?;
                     
                     let value = match metric_str {
                         "visitors" => visitors,
@@ -931,8 +931,8 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(3)?;
                     let visits: i64 = row.get(4)?;
                     let pageviews: i64 = row.get(5)?;
-                    let avg_visit_duration: i64 = row.get(6).unwrap_or(0);
-                    let bounce_rate: i64 = row.get(7).unwrap_or(0);
+                    let avg_visit_duration: i64 = row.get(6)?;
+                    let bounce_rate: i64 = row.get(7)?;
                     
                     let value = match metric_str {
                         "visitors" => visitors,
@@ -1032,8 +1032,8 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(5)?;
                     let visits: i64 = row.get(6)?;
                     let pageviews: i64 = row.get(7)?;
-                    let avg_visit_duration: i64 = row.get(8).unwrap_or(0);
-                    let bounce_rate: i64 = row.get(9).unwrap_or(0);
+                    let avg_visit_duration: i64 = row.get(8)?;
+                    let bounce_rate: i64 = row.get(9)?;
 
                     let value = match metric_str {
                         "visitors" => visitors,
