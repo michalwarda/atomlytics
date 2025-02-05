@@ -50,6 +50,7 @@ pub enum Metric {
     UniqueVisitors,
     Visits,
     Pageviews,
+    AvgVisitDuration,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -89,7 +90,7 @@ pub struct AggregateMetrics {
     pub total_visits: i64,
     pub total_pageviews: i64,
     pub current_visits: Option<i64>,
-    pub avg_visit_duration: Option<i64>,
+    pub avg_visit_duration: i64,
 }
 
 #[derive(Serialize)]
@@ -100,6 +101,7 @@ pub struct LocationMetrics {
     pub visitors: i64,
     pub visits: i64,
     pub pageviews: i64,
+    pub avg_visit_duration: i64,
 }
 
 #[derive(Serialize)]
@@ -110,6 +112,7 @@ pub struct DeviceMetrics {
     pub visitors: i64,
     pub visits: i64,
     pub pageviews: i64,
+    pub avg_visit_duration: i64,
 }
 
 #[derive(Serialize)]
@@ -122,6 +125,7 @@ pub struct SourceMetrics {
     pub visitors: i64,
     pub visits: i64,
     pub pageviews: i64,
+    pub avg_visit_duration: i64,
 }
 
 pub async fn get_statistics(
@@ -224,11 +228,11 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id) as unique_visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
-                        AVG(CASE 
+                        CAST(AVG(CASE 
                             WHEN event_type = 'visit' AND last_activity_at > timestamp 
                             THEN last_activity_at - timestamp 
                             ELSE NULL 
-                        END) as avg_visit_duration,
+                        END) AS INTEGER) as avg_visit_duration,
                         strftime('%s', 'now') as created_at
                     FROM events 
                     WHERE timestamp >= ?3
@@ -238,7 +242,7 @@ impl StatisticsAggregator {
 
                 conn.execute(
                     "INSERT OR REPLACE INTO location_statistics (
-                        period_type, period_start, country, region, city, visitors, visits, pageviews, created_at
+                        period_type, period_start, country, region, city, visitors, visits, pageviews, avg_visit_duration, created_at
                     )
                     SELECT 
                         ?1 as period_type,
@@ -249,6 +253,11 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id) as visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        CAST(AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) AS INTEGER) as avg_visit_duration,
                         strftime('%s', 'now') as created_at
                     FROM events
                     WHERE timestamp >= ?3 AND country IS NOT NULL
@@ -260,7 +269,7 @@ impl StatisticsAggregator {
                 conn.execute(
                     "INSERT OR REPLACE INTO device_statistics (
                         period_type, period_start, browser, operating_system, device_type,
-                        visitors, visits, pageviews, created_at
+                        visitors, visits, pageviews, avg_visit_duration, created_at
                     )
                     SELECT 
                         ?1 as period_type,
@@ -271,6 +280,11 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id) as visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        CAST(AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) AS INTEGER) as avg_visit_duration,
                         strftime('%s', 'now') as created_at
                     FROM events
                     WHERE timestamp >= ?3 AND browser IS NOT NULL
@@ -282,7 +296,7 @@ impl StatisticsAggregator {
                 conn.execute(
                     "INSERT OR REPLACE INTO source_statistics (
                         period_type, period_start, source, referrer, utm_source, utm_medium, utm_campaign,
-                        visitors, visits, pageviews, created_at
+                        visitors, visits, pageviews, avg_visit_duration, created_at
                     )
                     SELECT 
                         ?1 as period_type,
@@ -295,6 +309,11 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id) as visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                        CAST(AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) AS INTEGER) as avg_visit_duration,
                         strftime('%s', 'now') as created_at
                     FROM events
                     WHERE timestamp >= ?3
@@ -405,7 +424,7 @@ impl StatisticsAggregator {
                 // Location metrics
                 conn.execute(
                     "INSERT OR REPLACE INTO location_aggregated_metrics 
-                    (period_name, start_ts, end_ts, country, region, city, visitors, visits, pageviews, created_at)
+                    (period_name, start_ts, end_ts, country, region, city, visitors, visits, pageviews, avg_visit_duration, created_at)
                     SELECT 
                         ?,
                         ?,
@@ -416,7 +435,12 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id),
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                        strftime('%s', 'now')
+                        CAST(AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) AS INTEGER) as avg_visit_duration,
+                        strftime('%s', 'now') as created_at
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ? AND country IS NOT NULL
                     GROUP BY country, region, city",
@@ -427,7 +451,7 @@ impl StatisticsAggregator {
                 conn.execute(
                     "INSERT OR REPLACE INTO device_aggregated_metrics 
                     (period_name, start_ts, end_ts, browser, operating_system, device_type,
-                     visitors, visits, pageviews, created_at)
+                     visitors, visits, pageviews, avg_visit_duration, created_at)
                     SELECT 
                         ?,
                         ?,
@@ -438,7 +462,12 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id),
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                        strftime('%s', 'now')
+                        CAST(AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) AS INTEGER) as avg_visit_duration,
+                        strftime('%s', 'now') as created_at
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ? AND browser IS NOT NULL
                     GROUP BY browser, operating_system, device_type",
@@ -449,7 +478,7 @@ impl StatisticsAggregator {
                 conn.execute(
                     "INSERT OR REPLACE INTO source_aggregated_metrics 
                     (period_name, start_ts, end_ts, source, referrer, utm_source, utm_medium, utm_campaign,
-                     visitors, visits, pageviews, created_at)
+                     visitors, visits, pageviews, avg_visit_duration, created_at)
                     SELECT 
                         ?,
                         ?,
@@ -462,7 +491,12 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id),
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                        strftime('%s', 'now')
+                        CAST(AVG(CASE 
+                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                            THEN last_activity_at - timestamp 
+                            ELSE NULL 
+                        END) AS INTEGER) as avg_visit_duration,
+                        strftime('%s', 'now') as created_at
                     FROM events 
                     WHERE timestamp >= ? AND timestamp <= ?
                     GROUP BY source, referrer, utm_source, utm_medium, utm_campaign",
@@ -482,11 +516,11 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT visitor_id) as unique_visitors,
                         COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
-                        AVG(CASE 
+                        CAST(AVG(CASE 
                             WHEN event_type = 'visit' AND last_activity_at > timestamp 
                             THEN last_activity_at - timestamp 
                             ELSE NULL 
-                        END) as avg_visit_duration
+                        END) AS INTEGER) as avg_visit_duration
                      FROM events 
                      WHERE timestamp >= ? AND timestamp <= ?"
                 )?;
@@ -497,7 +531,7 @@ impl StatisticsAggregator {
                         total_visits: row.get(1)?,
                         total_pageviews: row.get(2)?,
                         current_visits: None,
-                        avg_visit_duration: row.get(3)?,
+                        avg_visit_duration: row.get(3).unwrap_or(0),
                     })
                 })?;
                 
@@ -553,7 +587,7 @@ impl StatisticsAggregator {
                                 total_visits: row.get(1)?,
                                 total_pageviews: row.get(2)?,
                                 current_visits: None,
-                                avg_visit_duration: row.get(3)?,
+                                avg_visit_duration: row.get(3).unwrap_or(0),
                             })
                         })?)
                     })
@@ -603,7 +637,7 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT period_start, unique_visitors, total_visits, total_pageviews
+                    "SELECT period_start, unique_visitors, total_visits, total_pageviews, avg_visit_duration
                      FROM statistics 
                      WHERE period_type = ? 
                      AND period_start >= ? 
@@ -618,6 +652,7 @@ impl StatisticsAggregator {
                             Metric::UniqueVisitors => Ok((row.get(0)?, row.get(1)?)),
                             Metric::Visits => Ok((row.get(0)?, row.get(2)?)),
                             Metric::Pageviews => Ok((row.get(0)?, row.get(3)?)),
+                            Metric::AvgVisitDuration => Ok((row.get(0)?, row.get(4).unwrap_or(0))),
                         }
                     },
                 )
@@ -664,7 +699,7 @@ impl StatisticsAggregator {
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT unique_visitors, total_visits, total_pageviews, current_visits
+                    "SELECT unique_visitors, total_visits, total_pageviews, current_visits, avg_visit_duration
                      FROM aggregated_metrics
                      WHERE period_name = 'realtime'"
                 )?;
@@ -675,7 +710,7 @@ impl StatisticsAggregator {
                         total_visits: row.get(1)?,
                         total_pageviews: row.get(2)?,
                         current_visits: row.get(3)?,
-                        avg_visit_duration: None,
+                        avg_visit_duration: row.get(4).unwrap_or(0),
                     })
                 })?)
             })
@@ -701,6 +736,7 @@ impl StatisticsAggregator {
             Metric::UniqueVisitors => "visitors",
             Metric::Visits => "visits",
             Metric::Pageviews => "pageviews",
+            Metric::AvgVisitDuration => "avg_visit_duration",
         };
 
         let (start_ts, end_ts, period_name) = match timeframe {
@@ -727,7 +763,8 @@ impl StatisticsAggregator {
                         city,
                         SUM(visitors) as visitors,
                         SUM(visits) as visits,
-                        SUM(pageviews) as pageviews
+                        SUM(pageviews) as pageviews,
+                        CAST(AVG(avg_visit_duration) AS INTEGER) as avg_visit_duration
                      FROM location_aggregated_metrics
                      WHERE period_name = ?
                      AND start_ts >= ?
@@ -744,11 +781,13 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(3)?;
                     let visits: i64 = row.get(4)?;
                     let pageviews: i64 = row.get(5)?;
+                    let avg_visit_duration: i64 = row.get(6).unwrap_or(0);
                     
                     let value = match metric_str {
                         "visitors" => visitors,
                         "visits" => visits,
                         "pageviews" => pageviews,
+                        "avg_visit_duration" => avg_visit_duration,
                         _ => 0,
                     };
                     
@@ -760,6 +799,7 @@ impl StatisticsAggregator {
                             visitors,
                             visits,
                             pageviews,
+                            avg_visit_duration,
                         }))
                     } else {
                         Ok(None)
@@ -790,6 +830,7 @@ impl StatisticsAggregator {
             Metric::UniqueVisitors => "visitors",
             Metric::Visits => "visits",
             Metric::Pageviews => "pageviews",
+            Metric::AvgVisitDuration => "avg_visit_duration",
         };
 
         let (start_ts, end_ts, period_name) = match timeframe {
@@ -816,7 +857,8 @@ impl StatisticsAggregator {
                         device_type,
                         SUM(visitors) as visitors,
                         SUM(visits) as visits,
-                        SUM(pageviews) as pageviews
+                        SUM(pageviews) as pageviews,
+                        CAST(AVG(avg_visit_duration) AS INTEGER) as avg_visit_duration
                      FROM device_aggregated_metrics
                      WHERE period_name = ?
                      AND start_ts >= ?
@@ -832,11 +874,13 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(3)?;
                     let visits: i64 = row.get(4)?;
                     let pageviews: i64 = row.get(5)?;
+                    let avg_visit_duration: i64 = row.get(6).unwrap_or(0);
                     
                     let value = match metric_str {
                         "visitors" => visitors,
                         "visits" => visits,
                         "pageviews" => pageviews,
+                        "avg_visit_duration" => avg_visit_duration,
                         _ => 0,
                     };
                     
@@ -848,6 +892,7 @@ impl StatisticsAggregator {
                             visitors,
                             visits,
                             pageviews,
+                            avg_visit_duration,
                         }))
                     } else {
                         Ok(None)
@@ -879,6 +924,7 @@ impl StatisticsAggregator {
             Metric::UniqueVisitors => "visitors",
             Metric::Visits => "visits",
             Metric::Pageviews => "pageviews",
+            Metric::AvgVisitDuration => "avg_visit_duration",
         };
 
         let (start_ts, end_ts, period_name) = match timeframe {
@@ -907,7 +953,8 @@ impl StatisticsAggregator {
                         utm_campaign,
                         SUM(visitors) as visitors,
                         SUM(visits) as visits,
-                        SUM(pageviews) as pageviews
+                        SUM(pageviews) as pageviews,
+                        CAST(AVG(avg_visit_duration) AS INTEGER) as avg_visit_duration
                      FROM source_aggregated_metrics
                      WHERE period_name = ?
                      AND start_ts >= ?
@@ -923,11 +970,15 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(5)?;
                     let visits: i64 = row.get(6)?;
                     let pageviews: i64 = row.get(7)?;
+                    let avg_visit_duration: i64 = row.get(8).unwrap_or(0);
+
+                    println!("avg_visit_duration: {}", avg_visit_duration);
                     
                     let value = match metric_str {
                         "visitors" => visitors,
                         "visits" => visits,
                         "pageviews" => pageviews,
+                        "avg_visit_duration" => avg_visit_duration,
                         _ => 0,
                     };
                     
@@ -941,6 +992,7 @@ impl StatisticsAggregator {
                             visitors,
                             visits,
                             pageviews,
+                            avg_visit_duration,
                         }))
                     } else {
                         Ok(None)

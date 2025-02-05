@@ -135,6 +135,7 @@
                     <option value="UniqueVisitors" selected>Unique Visitors</option>
                     <option value="Visits">Total Visits</option>
                     <option value="Pageviews">Total Pageviews</option>
+                    <option value="AvgVisitDuration">Avg Visit Duration</option>
                 </select>
             </div>
             <div class="filter-group">
@@ -322,29 +323,29 @@
             fetchData();
         }
 
+        function formatDuration(seconds) {
+            if (!seconds && seconds !== 0) return '-';
+            
+            if (seconds < 60) {
+                return `${seconds}s`;
+            } else if (seconds < 3600) {
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                return `${minutes}m ${remainingSeconds}s`;
+            } else {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                return `${hours}h ${minutes}m`;
+            }
+        }
+
         function updateStatistics(data) {
             document.getElementById('unique-visitors').textContent = data.aggregates.unique_visitors;
             document.getElementById('total-visits').textContent = data.aggregates.total_visits;
             document.getElementById('total-pageviews').textContent = data.aggregates.total_pageviews;
             document.getElementById('current-visits').textContent = data.realtime_aggregates.current_visits;
             
-            // Format and display average visit duration
-            const avgDuration = data.aggregates.avg_visit_duration;
-            let durationText = '-';
-            if (avgDuration) {
-                if (avgDuration < 60) {
-                    durationText = `${avgDuration}s`;
-                } else if (avgDuration < 3600) {
-                    const minutes = Math.floor(avgDuration / 60);
-                    const seconds = avgDuration % 60;
-                    durationText = `${minutes}m ${seconds}s`;
-                } else {
-                    const hours = Math.floor(avgDuration / 3600);
-                    const minutes = Math.floor((avgDuration % 3600) / 60);
-                    durationText = `${hours}h ${minutes}m`;
-                }
-            }
-            document.getElementById('avg-visit-duration').textContent = durationText;
+            document.getElementById('avg-visit-duration').textContent = formatDuration(data.aggregates.avg_visit_duration);
             
             document.getElementById('location-grouping-label').textContent = document.getElementById('location-grouping').value;
             document.getElementById('device-grouping-label').textContent = document.getElementById('device-grouping').value;
@@ -358,7 +359,7 @@
                 const locationGrouping = document.getElementById('location-grouping').value;
                 const metric = document.getElementById('metric').value;
 
-                data.location_metrics.forEach(({country, region, city, visitors, visits, pageviews}) => {
+                data.location_metrics.forEach(({country, region, city, visitors, visits, pageviews, avg_visit_duration}) => {
                     const row = document.createElement('tr');
                     let value = visitors;
                     let grouping = country;
@@ -372,6 +373,9 @@
                             break;
                         case 'Pageviews':
                             value = pageviews;
+                            break;
+                        case 'AvgVisitDuration':
+                            value = formatDuration(avg_visit_duration);
                             break;
                     }
 
@@ -403,7 +407,7 @@
                 const deviceGrouping = document.getElementById('device-grouping').value;
                 const metric = document.getElementById('metric').value;
 
-                data.device_metrics.forEach(({browser, operating_system, device_type, visitors, visits, pageviews}) => {
+                data.device_metrics.forEach(({browser, operating_system, device_type, visitors, visits, pageviews, avg_visit_duration}) => {
                     const row = document.createElement('tr');
                     let value = visitors;
                     let grouping = browser;
@@ -417,6 +421,9 @@
                             break;
                         case 'Pageviews':
                             value = pageviews;
+                            break;
+                        case 'AvgVisitDuration':
+                            value = formatDuration(avg_visit_duration);
                             break;
                     }
 
@@ -448,7 +455,7 @@
                 const sourceGrouping = document.getElementById('source-grouping').value;
                 const metric = document.getElementById('metric').value;
 
-                data.source_metrics.forEach(({source, referrer, utm_source, utm_medium, utm_campaign, visitors, visits, pageviews}) => {
+                data.source_metrics.forEach(({source, referrer, utm_source, utm_medium, utm_campaign, visitors, visits, pageviews, avg_visit_duration}) => {
                     const row = document.createElement('tr');
                     let value = visitors;
                     let grouping = source;
@@ -462,6 +469,9 @@
                             break;
                         case 'Pageviews':
                             value = pageviews;
+                            break;
+                        case 'AvgVisitDuration':
+                            value = formatDuration(avg_visit_duration);
                             break;
                     }
 
