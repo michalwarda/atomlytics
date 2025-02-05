@@ -323,6 +323,39 @@
     </div>
 
     <script>
+        const metrics = [
+            {
+                id: 'unique-visitors',
+                label: 'Unique Visitors',
+                metricType: 'UniqueVisitors',
+                showInRealtime: false
+            },
+            {
+                id: 'total-visits',
+                label: 'Total Visits',
+                metricType: 'Visits',
+                showInRealtime: true
+            },
+            {
+                id: 'total-pageviews',
+                label: 'Total Pageviews',
+                metricType: 'Pageviews',
+                showInRealtime: true
+            },
+            {
+                id: 'avg-visit-duration',
+                label: 'Avg Visit Duration',
+                metricType: 'AvgVisitDuration',
+                showInRealtime: false
+            },
+            {
+                id: 'bounce-rate',
+                label: 'Bounce Rate',
+                metricType: 'BounceRate',
+                showInRealtime: false
+            }
+        ];
+
         function getQueryParams() {
             const params = new URLSearchParams(window.location.search);
             return {
@@ -341,7 +374,7 @@
             const locationGrouping = document.getElementById('location-grouping').value;
             const deviceGrouping = document.getElementById('device-grouping').value;
             const sourceGrouping = document.getElementById('source-grouping').value;
-            
+
             const params = new URLSearchParams();
             params.set('metric', newMetric || document.querySelector('.metric.active')?.getAttribute('data-metric') || 'UniqueVisitors');
             params.set('timeframe', timeframe);
@@ -379,7 +412,12 @@
 
             if (newOptions.length > 0 && newOptions.some(option => option.value === granularity)) {
                 granularitySelect.value = granularity;
-            } 
+            }
+            
+            
+            if (timeframe === 'Realtime' && !metrics.filter(metric => metric.showInRealtime).find(m => m.metricType === newMetric)) {
+                newMetric = 'UniqueVisitors';
+            }
             
             updateQueryParams(newMetric);
             fetchData();
@@ -405,25 +443,31 @@
             const timeframe = document.getElementById('timeframe').value;
             const isRealtime = timeframe === 'Realtime';
             const metricsContainer = document.querySelector('.metrics-container');
-            console.log(window.location.search);
             const params = new URLSearchParams(window.location.search);
-            console.log(params)
-            console.log(params.get('metric'));
-            console.log(document.querySelector('.metric.active')?.getAttribute('data-metric'));
-            const currentMetric = document.querySelector('.metric.active')?.getAttribute('data-metric') || params.get('metric') || 'UniqueVisitors';
+            const currentMetric = params.get('metric') || 'UniqueVisitors';
 
             // Clear existing metrics
             metricsContainer.innerHTML = '';
+            
+            const currentVisitorsMetric = document.createElement('div');
+            currentVisitorsMetric.className = `metric live ${currentMetric === 'UniqueVisitors' && isRealtime ? 'active' : ''}`;
+            currentVisitorsMetric.setAttribute('data-metric', 'UniqueVisitors');
+            currentVisitorsMetric.innerHTML = `
+                <h3>Current Visitors</h3>
+                <p id="current-visitors">${data.realtime_aggregates.current_visits}</p>
+                <div class="live-indicator"></div>
+            `;
+
+            currentVisitorsMetric.onclick = () => {
+                document.querySelectorAll('.metric').forEach(m => m.classList.remove('active'));
+                document.getElementById('timeframe').value = 'Realtime';
+                updateFilters('UniqueVisitors');
+            };
+
+            metricsContainer.appendChild(currentVisitorsMetric);
 
             // Create and add metrics based on timeframe
             const metrics = [
-                {
-                    id: 'current-visits',
-                    label: 'Current Visitors',
-                    value: data.realtime_aggregates.current_visits,
-                    showInRealtime: true,
-                    metricType: 'CurrentVisits'
-                },
                 {
                     id: 'unique-visitors',
                     label: 'Unique Visitors',
@@ -465,34 +509,19 @@
                 if (isRealtime && !metric.showInRealtime) return;
 
                 const metricDiv = document.createElement('div');
-                metricDiv.className = `metric ${metric.metricType === currentMetric ? 'active' : ''} ${metric.metricType === 'CurrentVisits' ? 'live' : ''}`;
+                metricDiv.className = `metric ${metric.metricType === currentMetric ? 'active' : ''}`;
                 metricDiv.setAttribute('data-metric', metric.metricType);
                 
-                if (metric.metricType === 'CurrentVisits') {
-                    metricDiv.onclick = () => {
-                        document.getElementById('timeframe').value = 'Realtime';
-                        document.querySelectorAll('.metric').forEach(m => m.classList.remove('active'));
-                        document.querySelector('[data-metric="UniqueVisitors"]')?.classList.add('active');
-                        updateFilters('UniqueVisitors');
-                    };
-                } else {
-                    metricDiv.onclick = () => {
-                        document.querySelectorAll('.metric').forEach(m => m.classList.remove('active'));
-                        metricDiv.classList.add('active');
-                        updateFilters(metric.metricType);
-                    };
-                }
+                metricDiv.onclick = () => {
+                    document.querySelectorAll('.metric').forEach(m => m.classList.remove('active'));
+                    metricDiv.classList.add('active');
+                    updateFilters(metric.metricType);
+                };
 
-                let content = `
+                metricDiv.innerHTML = `
                     <h3>${metric.label}</h3>
                     <p id="${metric.id}">${metric.value}</p>
                 `;
-
-                if (metric.metricType === 'CurrentVisits') {
-                    content += '<div class="live-indicator"></div>';
-                }
-
-                metricDiv.innerHTML = content;
                 metricsContainer.appendChild(metricDiv);
             });
 
@@ -661,12 +690,7 @@
         let chart;
 
         async function fetchData() {
-            const timeframe = document.getElementById('timeframe').value;
-            const granularity = document.getElementById('granularity').value;
-            const metric = document.querySelector('.metric.active')?.getAttribute('data-metric') || 'UniqueVisitors';
-            const locationGrouping = document.getElementById('location-grouping').value;
-            const deviceGrouping = document.getElementById('device-grouping').value;
-            const sourceGrouping = document.getElementById('source-grouping').value;
+            const {timeframe, granularity, metric, locationGrouping, deviceGrouping, sourceGrouping} = getQueryParams();
             
             const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}&device_grouping=${deviceGrouping}&source_grouping=${sourceGrouping}`);
             const data = await response.json();
