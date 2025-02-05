@@ -7,7 +7,7 @@ edition = "2021"
 # Web server framework
 axum = { version = "0.7", features = ["macros"] }
 tokio = { version = "1.36", features = ["full"] }
-tower-http = { version = "0.5", features = ["trace", "cors"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
 
 # Database
 rusqlite = { version = "0.30", features = ["bundled"] }

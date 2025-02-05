@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_rusqlite::Connection;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use tower_http::trace::{DefaultOnFailure, TraceLayer};
 use tracing::{error, info, warn, Level, Span};
 use uaparser::{Parser, UserAgentParser};
@@ -277,6 +278,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         .route("/api/event", post(track_event))
         .route("/script.js", get(serve_script))
+        .nest_service("/", ServeDir::new("src/assets"))
         .nest(
             "/",
             Router::new()

@@ -1,0 +1,9 @@
+<!-- Favicon for Atomlytics -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <!-- Electron orbit -->
+    <ellipse fill="none" stroke="#7c4dff" stroke-width="8" cx="50" cy="50" rx="40" ry="40" opacity="0.6"/>
+    <!-- Nucleus -->
+    <circle fill="#7c4dff" cx="50" cy="50" r="8"/>
+    <!-- Electron -->
+    <circle fill="#7c4dff" cx="90" cy="50" r="4"/>
+</svg> 
