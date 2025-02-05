@@ -949,8 +949,8 @@ impl StatisticsAggregator {
 
         let group_by_clause = match grouping {
             SourceGrouping::Source => "source",
-            SourceGrouping::Referrer => "source, referrer",
-            SourceGrouping::Campaign => "source, utm_source, utm_medium, utm_campaign",
+            SourceGrouping::Referrer => "referrer",
+            SourceGrouping::Campaign => "utm_source, utm_medium, utm_campaign",
         };
 
         self.db
