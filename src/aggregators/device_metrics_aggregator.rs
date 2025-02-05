@@ -1,111 +1,53 @@
+use std::ops::Deref;
 use std::sync::Arc;
-
-use chrono::{Timelike, Utc};
-use rusqlite::params;
 use tokio_rusqlite::Connection;
 
+use super::base_metrics_aggregator::{BaseMetricsAggregator, MetricsOutput};
 use super::{DeviceGrouping, DeviceMetrics, Metric, TimeFrame};
 
 pub struct DeviceMetricsAggregator {
-    db: Arc<Connection>,
+    base: BaseMetricsAggregator,
+}
+
+impl Deref for DeviceMetricsAggregator {
+    type Target = BaseMetricsAggregator;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
 }
 
 impl DeviceMetricsAggregator {
     pub fn new(db: Arc<Connection>) -> Self {
-        Self { db }
-    }
+        let gathered_fields = vec![
+            (
+                "browser".to_string(),
+                "COALESCE(browser, 'Unknown') as browser".to_string(),
+            ),
+            (
+                "operating_system".to_string(),
+                "COALESCE(operating_system, 'Unknown') as operating_system".to_string(),
+            ),
+            (
+                "device_type".to_string(),
+                "COALESCE(device_type, 'Unknown') as device_type".to_string(),
+            ),
+        ];
+        let group_by_fields = vec![
+            "browser".to_string(),
+            "operating_system".to_string(),
+            "device_type".to_string(),
+        ];
 
-    pub async fn remove_unused_active_aggregated_metrics(
-        &self,
-        thirty_minutes_ago_ts: i64,
-    ) -> Result<(), tokio_rusqlite::Error> {
-        self.db.call(move |conn| {
-            conn.execute("DELETE FROM device_aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
-            Ok(())
-        }).await
-    }
-
-    pub async fn aggregate_stats_for_period(
-        &self,
-        period_type: &str,
-        time_division: i64,
-        start_timestamp: i64,
-    ) -> Result<(), tokio_rusqlite::Error> {
-        let period_type = period_type.to_string();
-
-        self.db.call(move |conn| {
-            conn.execute(
-                "INSERT OR REPLACE INTO device_statistics (
-                        period_type, period_start, browser, operating_system, device_type, 
-                        visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at
-                )
-                SELECT 
-                    ?1 as period_type,
-                    (timestamp / ?2) * ?2 as period_start,
-                    COALESCE(browser, 'Unknown') as browser,
-                    COALESCE(operating_system, 'Unknown') as operating_system,
-                    COALESCE(device_type, 'Unknown') as device_type,
-                    COUNT(DISTINCT visitor_id) as visitors,
-                    COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
-                    COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
-                    CAST(AVG(CASE 
-                        WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                        THEN last_activity_at - timestamp 
-                        ELSE NULL 
-                    END) AS INTEGER) as avg_visit_duration,
-                    CAST(
-                        CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                        CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
-                    AS FLOAT) as bounce_rate,
-                    strftime('%s', 'now') as created_at
-                FROM events
-                WHERE timestamp >= ?3
-                GROUP BY period_start, browser, operating_system, device_type",
-                params![period_type, time_division, start_timestamp],
-            )?;
-            Ok(())
-        }).await
-    }
-
-    pub async fn aggregate_metrics_for_period(
-        &self,
-        period_name: &str,
-        start_ts: i64,
-        end_ts: i64,
-    ) -> Result<(), tokio_rusqlite::Error> {
-        let period_name = period_name.to_string();
-        self.db.call(move |conn| {
-                // Location metrics
-                conn.execute(
-                    "INSERT OR REPLACE INTO device_aggregated_metrics 
-                    (period_name, start_ts, end_ts, browser, operating_system, device_type, visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at)
-                    SELECT 
-                        ?,
-                        ?,
-                        ?,
-                        COALESCE(browser, 'Unknown') as browser,
-                        COALESCE(operating_system, 'Unknown') as operating_system,
-                        COALESCE(device_type, 'Unknown') as device_type,
-                        COUNT(DISTINCT visitor_id),
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                        CAST(AVG(CASE 
-                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                            THEN last_activity_at - timestamp 
-                            ELSE NULL 
-                        END) AS INTEGER) as avg_visit_duration,
-                        CAST(
-                            CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                            CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
-                        AS FLOAT) as bounce_rate,
-                        strftime('%s', 'now') as created_at
-                    FROM events 
-                    WHERE timestamp >= ? AND timestamp <= ?
-                    GROUP BY browser, operating_system, device_type",
-                    params![period_name, start_ts, end_ts, start_ts, end_ts],
-                )?;
-                Ok(())
-        }).await
+        Self {
+            base: BaseMetricsAggregator::new(
+                db,
+                "device_aggregated_metrics".to_string(),
+                "device_statistics".to_string(),
+                gathered_fields,
+                group_by_fields,
+            ),
+        }
     }
 
     pub async fn get_metrics(
@@ -114,116 +56,39 @@ impl DeviceMetricsAggregator {
         metric: &Metric,
         grouping: DeviceGrouping,
     ) -> Result<Vec<DeviceMetrics>, tokio_rusqlite::Error> {
-        let now = Utc::now()
-            .with_second(0)
-            .unwrap()
-            .with_nanosecond(0)
-            .unwrap();
-        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let today_start_ts = today_start.and_utc().timestamp();
-        let today_end = today_start + chrono::Duration::days(1);
-        let today_end_ts = today_end.and_utc().timestamp();
-
-        let metric_str = match metric {
-            Metric::UniqueVisitors => "visitors",
-            Metric::Visits => "visits",
-            Metric::Pageviews => "pageviews",
-            Metric::AvgVisitDuration => "avg_visit_duration",
-            Metric::BounceRate => "bounce_rate",
-        };
-        let order_direction = match metric {
-            Metric::BounceRate => "ASC",
-            _ => "DESC",
-        };
-
-        let (start_ts, end_ts, period_name) = match timeframe {
-            TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
-            TimeFrame::Today => (today_start_ts, today_end_ts, Some("today")),
-            TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts, Some("yesterday")),
-            TimeFrame::Last7Days => (
-                now.timestamp() - 7 * 86400,
-                now.timestamp(),
-                Some("last_7_days"),
-            ),
-            TimeFrame::Last30Days => (
-                now.timestamp() - 30 * 86400,
-                now.timestamp(),
-                Some("last_30_days"),
-            ),
-            TimeFrame::AllTime => (0, now.timestamp(), None),
-        };
-
-        let group_by_clause = match grouping {
+        let group_by_field = match grouping {
             DeviceGrouping::Browser => "browser",
             DeviceGrouping::OperatingSystem => "operating_system",
             DeviceGrouping::DeviceType => "device_type",
         };
 
-        self.db
-            .call(move |conn| {
-                let query = format!(
-                    "SELECT 
-                        browser,
-                        operating_system,
-                        device_type,
-                        SUM(visitors) as visitors,
-                        SUM(visits) as visits,
-                        SUM(pageviews) as pageviews,
-                        CAST(AVG(avg_visit_duration) AS INTEGER) as avg_visit_duration,
-                        CAST(AVG(bounce_rate) AS INTEGER) as bounce_rate
-                     FROM device_aggregated_metrics
-                     WHERE period_name = ?
-                     AND start_ts >= ?
-                     AND end_ts <= ?
-                     GROUP BY {}
-                     ORDER BY {} {}",
-                    group_by_clause, metric_str, order_direction
-                );
-
-                let mut stmt = conn.prepare(&query)?;
-
-                // TODO: Handle AllTime
-                let metrics = stmt
-                    .query_map(
-                        params![period_name.unwrap_or(""), start_ts, end_ts],
-                        |row| {
-                            let visitors: i64 = row.get(3)?;
-                            let visits: i64 = row.get(4)?;
-                            let pageviews: i64 = row.get(5)?;
-                            let avg_visit_duration: i64 =
-                                row.get::<_, Option<i64>>(6)?.unwrap_or(0);
-                            let bounce_rate: i64 = row.get::<_, Option<i64>>(7)?.unwrap_or(0);
-
-                            let value = match metric_str {
-                                "visitors" => visitors,
-                                "visits" => visits,
-                                "pageviews" => pageviews,
-                                "avg_visit_duration" => avg_visit_duration,
-                                "bounce_rate" => bounce_rate,
-                                _ => 0,
-                            };
-
-                            if value > 0 {
-                                Ok(Some(DeviceMetrics {
-                                    browser: row.get(0)?,
-                                    operating_system: row.get(1)?,
-                                    device_type: row.get(2)?,
-                                    visitors,
-                                    visits,
-                                    pageviews,
-                                    avg_visit_duration,
-                                    bounce_rate,
-                                }))
-                            } else {
-                                Ok(None)
-                            }
-                        },
-                    )?
-                    .filter_map(|r| r.transpose())
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                Ok(metrics)
-            })
+        self.base
+            .get_metrics(timeframe, metric, group_by_field)
             .await
+    }
+}
+
+impl MetricsOutput for DeviceMetrics {
+    fn from_row(row: &rusqlite::Row) -> Result<Option<Self>, rusqlite::Error> {
+        let visitors: i64 = row.get(3)?;
+        let visits: i64 = row.get(4)?;
+        let pageviews: i64 = row.get(5)?;
+        let avg_visit_duration: i64 = row.get::<_, Option<i64>>(6)?.unwrap_or(0);
+        let bounce_rate: i64 = row.get::<_, Option<i64>>(7)?.unwrap_or(0);
+
+        if visitors > 0 {
+            Ok(Some(DeviceMetrics {
+                browser: row.get(0)?,
+                operating_system: row.get(1)?,
+                device_type: row.get(2)?,
+                visitors,
+                visits,
+                pageviews,
+                avg_visit_duration,
+                bounce_rate,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }

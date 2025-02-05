@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub mod base_metrics_aggregator;
 pub mod device_metrics_aggregator;
 pub mod location_metrics_aggregator;
 pub mod source_metrics_aggregator;
