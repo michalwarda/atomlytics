@@ -1,4 +1,3 @@
-mod event_handler;
 mod handlers;
 mod migrations;
 mod remote_ip;
@@ -12,7 +11,6 @@ use axum::{
     Router,
 };
 use base64::{engine::general_purpose::STANDARD as base64, Engine};
-use event_handler::EventHandler;
 use handlers::*;
 use maxminddb::geoip2;
 use rusqlite::params;
