@@ -57,6 +57,10 @@ pub struct Event {
     pub last_activity_at: i64,
     #[serde(skip_deserializing)]
     pub last_visited_url: Option<String>,
+    #[serde(skip_deserializing)]
+    pub page_url_path: Option<String>,
+    #[serde(skip_deserializing)]
+    pub last_visited_url_path: Option<String>,
 }
 
 pub struct EventHandler {
@@ -172,6 +176,18 @@ impl EventHandler {
         }
     }
 
+    #[instrument(skip(self))]
+    fn extract_path(&self, url: &str) -> Option<String> {
+        Url::parse(url).ok().and_then(|u| {
+            let path = u.path().to_string();
+            if path.is_empty() || path == "/" {
+                Some("/".to_string())
+            } else {
+                Some(path)
+            }
+        })
+    }
+
     #[instrument(skip(self, event, custom_params))]
     async fn save_event(
         &self,
@@ -198,6 +214,8 @@ impl EventHandler {
         let is_active = event.is_active;
         let last_activity_at = event.last_activity_at;
         let last_visited_url = event.last_visited_url.clone();
+        let page_url_path = event.page_url_path.clone();
+        let last_visited_url_path = event.last_visited_url_path.clone();
         debug!(
             event_type = %event_type,
             page_url = %page_url,
@@ -213,9 +231,11 @@ impl EventHandler {
                         event_type, page_url, referrer, source, browser, operating_system, 
                         device_type, country, region, city,
                         utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                        timestamp, visitor_id, custom_params, is_active, last_activity_at, last_visited_url
+                        timestamp, visitor_id, custom_params, is_active, last_activity_at, last_visited_url,
+                        page_url_path, last_visited_url_path
                     ) VALUES (
-                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
+                        ?22, ?23
                     )",
                     params![
                         &event_type,
@@ -239,6 +259,8 @@ impl EventHandler {
                         &is_active,
                         &last_activity_at,
                         &last_visited_url,
+                        &page_url_path,
+                        &last_visited_url_path,
                     ],
                 )
                 .map(|_| {
@@ -328,6 +350,8 @@ impl EventHandler {
                 is_active: 1,
                 last_activity_at: event.timestamp,
                 last_visited_url: Some(event.page_url.clone()),
+                page_url_path: event.page_url_path.clone(),
+                last_visited_url_path: event.last_visited_url_path.clone(),
             };
 
             self.save_event(&visit_event, None).await?;
@@ -348,6 +372,9 @@ impl EventHandler {
 
         let ip_str = RemoteIp::get(&headers, &addr);
         let user_agent = self.extract_user_agent(&headers);
+
+        // Extract path from page_url
+        event.page_url_path = self.extract_path(&event.page_url);
 
         // Only set referrer from headers if it's not already set from client
         if event.referrer.is_none() {

@@ -556,6 +556,136 @@ fn get_migrations() -> Vec<Migration> {
             )?;
             Ok(())
         }),
+        Migration::new("Add URL paths to events table", 17, |conn| {
+            // Add the new columns
+            conn.execute("ALTER TABLE events ADD COLUMN page_url_path TEXT", [])?;
+            conn.execute(
+                "ALTER TABLE events ADD COLUMN last_visited_url_path TEXT",
+                [],
+            )?;
+
+            // Update page_url_path for all events
+            conn.execute(
+                "UPDATE events 
+                SET page_url_path = CASE 
+                    WHEN page_url IS NULL THEN NULL
+                    WHEN page_url NOT LIKE 'http%' THEN NULL
+                    WHEN instr(page_url, '://') = 0 THEN NULL
+                    WHEN substr(page_url, instr(page_url, '://')+3) NOT LIKE '%/%' THEN '/'
+                    ELSE (
+                        CASE
+                            WHEN instr(
+                                substr(substr(page_url, instr(page_url, '://')+3), 
+                                    instr(substr(page_url, instr(page_url, '://')+3), '/')
+                                ),
+                                '?'
+                            ) > 0
+                            THEN substr(
+                                substr(substr(page_url, instr(page_url, '://')+3), 
+                                    instr(substr(page_url, instr(page_url, '://')+3), '/')
+                                ),
+                                1,
+                                instr(
+                                    substr(substr(page_url, instr(page_url, '://')+3), 
+                                        instr(substr(page_url, instr(page_url, '://')+3), '/')
+                                    ),
+                                    '?'
+                                ) - 1
+                            )
+                            WHEN instr(
+                                substr(substr(page_url, instr(page_url, '://')+3), 
+                                    instr(substr(page_url, instr(page_url, '://')+3), '/')
+                                ),
+                                '#'
+                            ) > 0
+                            THEN substr(
+                                substr(substr(page_url, instr(page_url, '://')+3), 
+                                    instr(substr(page_url, instr(page_url, '://')+3), '/')
+                                ),
+                                1,
+                                instr(
+                                    substr(substr(page_url, instr(page_url, '://')+3), 
+                                        instr(substr(page_url, instr(page_url, '://')+3), '/')
+                                    ),
+                                    '#'
+                                ) - 1
+                            )
+                            ELSE substr(substr(page_url, instr(page_url, '://')+3), 
+                                instr(substr(page_url, instr(page_url, '://')+3), '/'))
+                        END
+                    )
+                END
+                WHERE page_url IS NOT NULL",
+                [],
+            )?;
+
+            // Update last_visited_url_path for visit events
+            conn.execute(
+                "UPDATE events 
+                SET last_visited_url_path = CASE 
+                    WHEN last_visited_url IS NULL THEN NULL
+                    WHEN last_visited_url NOT LIKE 'http%' THEN NULL
+                    WHEN instr(last_visited_url, '://') = 0 THEN NULL
+                    WHEN substr(last_visited_url, instr(last_visited_url, '://')+3) NOT LIKE '%/%' THEN '/'
+                    ELSE (
+                        CASE
+                            WHEN instr(
+                                substr(substr(last_visited_url, instr(last_visited_url, '://')+3), 
+                                    instr(substr(last_visited_url, instr(last_visited_url, '://')+3), '/')
+                                ),
+                                '?'
+                            ) > 0
+                            THEN substr(
+                                substr(substr(last_visited_url, instr(last_visited_url, '://')+3), 
+                                    instr(substr(last_visited_url, instr(last_visited_url, '://')+3), '/')
+                                ),
+                                1,
+                                instr(
+                                    substr(substr(last_visited_url, instr(last_visited_url, '://')+3), 
+                                        instr(substr(last_visited_url, instr(last_visited_url, '://')+3), '/')
+                                    ),
+                                    '?'
+                                ) - 1
+                            )
+                            WHEN instr(
+                                substr(substr(last_visited_url, instr(last_visited_url, '://')+3), 
+                                    instr(substr(last_visited_url, instr(last_visited_url, '://')+3), '/')
+                                ),
+                                '#'
+                            ) > 0
+                            THEN substr(
+                                substr(substr(last_visited_url, instr(last_visited_url, '://')+3), 
+                                    instr(substr(last_visited_url, instr(last_visited_url, '://')+3), '/')
+                                ),
+                                1,
+                                instr(
+                                    substr(substr(last_visited_url, instr(last_visited_url, '://')+3), 
+                                        instr(substr(last_visited_url, instr(last_visited_url, '://')+3), '/')
+                                    ),
+                                    '#'
+                                ) - 1
+                            )
+                            ELSE substr(substr(last_visited_url, instr(last_visited_url, '://')+3), 
+                                instr(substr(last_visited_url, instr(last_visited_url, '://')+3), '/'))
+                        END
+                    )
+                END
+                WHERE event_type = 'visit' AND last_visited_url IS NOT NULL",
+                [],
+            )?;
+
+            // Create indices for the new columns
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_page_url_path ON events(page_url_path)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_last_visited_url_path ON events(last_visited_url_path)",
+                [],
+            )?;
+
+            Ok(())
+        }),
     ]
 }
 
