@@ -5,17 +5,17 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             margin: 20px;
-            background: #f5f5f5;
+            background: #f8f9fc;
         }
         .container {
             max-width: 1200px;
             margin: 0 auto;
             background: white;
             padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
         .header {
             display: flex;
@@ -38,10 +38,10 @@
             height: 100% !important;
         }
         h1 {
-            color: #333;
+            color: #2c1810;
             margin: 0;
-            font-size: 2.5em;
-            font-weight: 600;
+            font-size: 2.2em;
+            font-weight: 700;
             letter-spacing: -0.5px;
         }
         .filters {
@@ -61,11 +61,21 @@
             gap: 10px;
         }
         select {
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid #ddd;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #eef0f7;
             background: white;
             font-size: 14px;
+            transition: all 0.2s ease;
+            color: #2c1810;
+        }
+        select:hover {
+            border-color: #7c4dff;
+        }
+        select:focus {
+            outline: none;
+            border-color: #7c4dff;
+            box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.1);
         }
         label {
             font-weight: 500;
@@ -78,22 +88,24 @@
             margin: 20px 0;
         }
         .metric {
-            background: #f5f5f5;
+            background: #fafbff;
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 12px;
             text-align: center;
             cursor: pointer;
             transition: all 0.2s ease;
             position: relative;
+            border: 1px solid #eef0f7;
         }
         .metric:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 12px rgba(74, 20, 140, 0.1);
+            border-color: #7c4dff;
         }
         .metric.active {
-            background: #e3f2fd;
-            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2);
-            border: 1px solid rgba(33, 150, 243, 0.3);
+            background: #f3e5f5;
+            box-shadow: 0 4px 12px rgba(74, 20, 140, 0.15);
+            border: 1px solid #7c4dff;
         }
         .metric.hidden {
             visibility: hidden;
@@ -102,33 +114,35 @@
             position: absolute;
             top: 10px;
             right: 10px;
-            width: 8px;
-            height: 8px;
-            background-color: #4CAF50;
+            width: 6px;
+            height: 6px;
+            background-color: #7c4dff;
             border-radius: 50%;
             animation: pulse 2s infinite;
         }
         @keyframes pulse {
             0% {
-                box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4);
+                box-shadow: 0 0 0 0 rgba(124, 77, 255, 0.4);
             }
             70% {
-                box-shadow: 0 0 0 6px rgba(76, 175, 80, 0);
+                box-shadow: 0 0 0 6px rgba(124, 77, 255, 0);
             }
             100% {
-                box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+                box-shadow: 0 0 0 0 rgba(124, 77, 255, 0);
             }
         }
         .metric h3 {
             margin: 0 0 10px 0;
-            color: #666;
-            font-size: 14px;
+            color: #4a148c;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         .metric p {
             margin: 0;
             font-size: 24px;
             font-weight: bold;
-            color: #333;
+            color: #2c1810;
         }
         .location-filter {
             display: flex;
@@ -149,19 +163,20 @@
             max-width: 400px;
             margin: 20px;
             background: white;
-            border-radius: 8px;
+            border-radius: 12px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             overflow: hidden;
             height: 400px;
             display: flex;
             flex-direction: column;
+            border: 1px solid #eef0f7;
         }
         .location-table table {
             width: 100%;
             border-collapse: collapse;
         }
         .location-table thead {
-            background: #f5f5f5;
+            background: #fafbff;
             display: table;
             width: 100%;
             table-layout: fixed;
@@ -177,23 +192,23 @@
             table-layout: fixed;
         }
         .location-table th {
-            background: #f5f5f5;
+            background: #fafbff;
             padding: 12px;
             text-align: left;
-            font-weight: 500;
-            color: #666;
-            border-bottom: 1px solid #ddd;
+            font-weight: 600;
+            color: #4a148c;
+            border-bottom: 1px solid #eef0f7;
         }
         .location-table th select {
             padding: 4px;
             font-size: 13px;
-            border: 1px solid #ddd;
             border-radius: 4px;
             background: white;
+            color: #2c1810;
         }
         .location-table td {
             padding: 10px 12px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid #eef0f7;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -202,7 +217,7 @@
             border-bottom: none;
         }
         .location-table tbody tr:hover {
-            background-color: #f8f9fa;
+            background-color: #fafbff;
         }
         .location-table td:first-child {
             width: 70%;
@@ -731,8 +746,8 @@
                             fill: true,
                             stepped: false,
                             cubicInterpolationMode: 'monotone',
-                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                            borderColor: 'rgba(33, 150, 243, 0.3)',
+                            backgroundColor: 'rgba(124, 77, 255, 0.1)',
+                            borderColor: 'rgba(124, 77, 255, 0.6)',
                         }]
                     },
                     options: {
@@ -770,7 +785,7 @@
                             y: {
                                 display: true,
                                 title: {
-                                    display: true,
+                                    display: false,
                                     text: metric
                                 },
                                 beginAtZero: true,
@@ -778,7 +793,7 @@
                                     display: true,
                                     drawOnChartArea: true,
                                     drawTicks: true,
-                                    color: 'rgba(0, 0, 0, 0.1)'
+                                    color: 'rgba(124, 77, 255, 0.1)'
                                 },
                                 suggestedMax: Math.max(...values) * 1.1,
                                 ticks: {
