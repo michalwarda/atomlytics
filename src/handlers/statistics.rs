@@ -789,6 +789,10 @@ impl StatisticsAggregator {
             Metric::AvgVisitDuration => "avg_visit_duration",
             Metric::BounceRate => "bounce_rate",
         };
+        let order_direction = match metric {
+            Metric::BounceRate => "ASC",
+            _ => "DESC",
+        };
 
         let (start_ts, end_ts, period_name) = match timeframe {
             TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
@@ -804,6 +808,7 @@ impl StatisticsAggregator {
             LocationGrouping::Region => "country, region",
             LocationGrouping::City => "country, region, city",
         };
+
 
         self.db
             .call(move |conn| {
@@ -822,8 +827,8 @@ impl StatisticsAggregator {
                      AND start_ts >= ?
                      AND end_ts <= ?
                      GROUP BY {}
-                     ORDER BY {} DESC",
-                    group_by_clause, metric_str
+                     ORDER BY {} {}",
+                    group_by_clause, metric_str, order_direction
                 );
 
                 let mut stmt = conn.prepare(&query)?;
@@ -833,8 +838,8 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(3)?;
                     let visits: i64 = row.get(4)?;
                     let pageviews: i64 = row.get(5)?;
-                    let avg_visit_duration: i64 = row.get(6)?;
-                    let bounce_rate: i64 = row.get(7)?;
+                    let avg_visit_duration: i64 = row.get::<_, Option<i64>>(6)?.unwrap_or(0);
+                    let bounce_rate: i64 = row.get::<_, Option<i64>>(7)?.unwrap_or(0);
                     
                     let value = match metric_str {
                         "visitors" => visitors,
@@ -889,6 +894,11 @@ impl StatisticsAggregator {
             Metric::BounceRate => "bounce_rate",
         };
 
+        let order_direction = match metric {
+            Metric::BounceRate => "ASC",
+            _ => "DESC",
+        };
+
         let (start_ts, end_ts, period_name) = match timeframe {
             TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
             TimeFrame::Today => (today_start_ts, today_end_ts, Some("today")),
@@ -921,8 +931,8 @@ impl StatisticsAggregator {
                      AND start_ts >= ?
                      AND end_ts <= ?
                      GROUP BY {}
-                     ORDER BY {} DESC",
-                    group_by_clause, metric_str
+                     ORDER BY {} {}",
+                    group_by_clause, metric_str, order_direction
                 );
 
                 let mut stmt = conn.prepare(&query)?;
@@ -931,8 +941,8 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(3)?;
                     let visits: i64 = row.get(4)?;
                     let pageviews: i64 = row.get(5)?;
-                    let avg_visit_duration: i64 = row.get(6)?;
-                    let bounce_rate: i64 = row.get(7)?;
+                    let avg_visit_duration: i64 = row.get::<_, Option<i64>>(6)?.unwrap_or(0);
+                    let bounce_rate: i64 = row.get::<_, Option<i64>>(7)?.unwrap_or(0);
                     
                     let value = match metric_str {
                         "visitors" => visitors,
@@ -988,6 +998,11 @@ impl StatisticsAggregator {
             Metric::BounceRate => "bounce_rate",
         };
 
+        let order_direction = match metric {
+            Metric::BounceRate => "ASC",
+            _ => "DESC",
+        };
+
         let (start_ts, end_ts, period_name) = match timeframe {
             TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
             TimeFrame::Today => (today_start_ts, today_end_ts, Some("today")),
@@ -1022,8 +1037,8 @@ impl StatisticsAggregator {
                      AND start_ts >= ?
                      AND end_ts <= ?
                      GROUP BY {}
-                     ORDER BY {} DESC",
-                    group_by_clause, metric_str
+                     ORDER BY {} {}",
+                    group_by_clause, metric_str, order_direction
                 );
 
                 let mut stmt = conn.prepare(&query)?;
@@ -1032,8 +1047,8 @@ impl StatisticsAggregator {
                     let visitors: i64 = row.get(5)?;
                     let visits: i64 = row.get(6)?;
                     let pageviews: i64 = row.get(7)?;
-                    let avg_visit_duration: i64 = row.get(8)?;
-                    let bounce_rate: i64 = row.get(9)?;
+                    let avg_visit_duration: i64 = row.get::<_, Option<i64>>(8)?.unwrap_or(0);
+                    let bounce_rate: i64 = row.get::<_, Option<i64>>(9)?.unwrap_or(0);
 
                     let value = match metric_str {
                         "visitors" => visitors,

@@ -364,7 +364,7 @@
                 const locationGrouping = document.getElementById('location-grouping').value;
                 const metric = document.getElementById('metric').value;
 
-                data.location_metrics.forEach(({country, region, city, visitors, visits, pageviews, avg_visit_duration}) => {
+                data.location_metrics.forEach(({country, region, city, visitors, visits, pageviews, avg_visit_duration, bounce_rate}) => {
                     const row = document.createElement('tr');
                     let value = visitors;
                     let grouping = country;
@@ -383,7 +383,7 @@
                             value = formatDuration(avg_visit_duration);
                             break;
                         case 'BounceRate':
-                            value = `${data.aggregates.bounce_rate}%`;
+                            value = `${bounce_rate}%`;
                             break;
                     }
 
@@ -415,7 +415,7 @@
                 const deviceGrouping = document.getElementById('device-grouping').value;
                 const metric = document.getElementById('metric').value;
 
-                data.device_metrics.forEach(({browser, operating_system, device_type, visitors, visits, pageviews, avg_visit_duration}) => {
+                data.device_metrics.forEach(({browser, operating_system, device_type, visitors, visits, pageviews, avg_visit_duration, bounce_rate}) => {
                     const row = document.createElement('tr');
                     let value = visitors;
                     let grouping = browser;
@@ -434,7 +434,7 @@
                             value = formatDuration(avg_visit_duration);
                             break;
                         case 'BounceRate':
-                            value = `${data.aggregates.bounce_rate}%`;
+                            value = `${bounce_rate}%`;
                             break;
                     }
 
@@ -466,7 +466,7 @@
                 const sourceGrouping = document.getElementById('source-grouping').value;
                 const metric = document.getElementById('metric').value;
 
-                data.source_metrics.forEach(({source, referrer, utm_source, utm_medium, utm_campaign, visitors, visits, pageviews, avg_visit_duration}) => {
+                data.source_metrics.forEach(({source, referrer, utm_source, utm_medium, utm_campaign, visitors, visits, pageviews, avg_visit_duration, bounce_rate}) => {
                     const row = document.createElement('tr');
                     let value = visitors;
                     let grouping = source;
@@ -485,7 +485,7 @@
                             value = formatDuration(avg_visit_duration);
                             break;
                         case 'BounceRate':
-                            value = `${data.aggregates.bounce_rate}%`;
+                            value = `${bounce_rate}%`;
                             break;
                     }
 
