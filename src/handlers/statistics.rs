@@ -531,7 +531,8 @@ impl StatisticsAggregator {
                         COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
                         strftime('%s', 'now')
                     FROM events 
-                    WHERE timestamp >= ? AND timestamp <= ?",
+                    WHERE timestamp >= ? AND timestamp <= ?
+                    GROUP BY source, referrer, utm_source, utm_medium, utm_campaign",
                     [&thirty_minutes_ago, &now.timestamp(), &thirty_minutes_ago, &now.timestamp()],
                 )?;
                 Ok(())
