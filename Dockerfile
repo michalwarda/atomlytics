@@ -27,6 +27,7 @@ COPY --from=build /atomlytics/target/release/atomlytics .
 COPY ./GeoLite2-City.mmdb .
 COPY ./regexes.yaml .
 COPY ./db ./db
+COPY ./src/assets ./src/assets
 
 # set the startup command to run your binary
 CMD ["./atomlytics"]
