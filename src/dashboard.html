@@ -136,6 +136,13 @@
             color: #666;
             border-bottom: 1px solid #ddd;
         }
+        .location-table th select {
+            padding: 4px;
+            font-size: 13px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+        }
         .location-table td {
             padding: 10px 12px;
             border-bottom: 1px solid #eee;
@@ -149,13 +156,14 @@
         .location-table tbody tr:hover {
             background-color: #f8f9fa;
         }
-        .location-table th:first-child,
         .location-table td:first-child {
             width: 70%;
         }
-        .location-table th:last-child,
         .location-table td:last-child {
             width: 30%;
+            text-align: right;
+        }
+        .location-table th:last-child {
             text-align: right;
         }
         /* Add scrollbar styling for better visibility */
@@ -218,40 +226,21 @@
             <canvas id="statsGraph"></canvas>
         </div>
 
-        <div class="location-filter">
-            <div class="filter-group">
-                <label for="location-grouping">Location Detail:</label>
-                <select id="location-grouping" onchange="updateFilters()">
-                    <option value="Country" selected>Country</option>
-                    <option value="Region">Region</option>
-                    <option value="City">City</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label for="device-grouping">Device Detail:</label>
-                <select id="device-grouping" onchange="updateFilters()">
-                    <option value="Browser" selected>Browser</option>
-                    <option value="OperatingSystem">Operating System</option>
-                    <option value="DeviceType">Device Type</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label for="source-grouping">Source Detail:</label>
-                <select id="source-grouping" onchange="updateFilters()">
-                    <option value="Source" selected>Source</option>
-                    <option value="Referrer">Referrer</option>
-                    <option value="Campaign">Campaign</option>
-                </select>
-            </div>
-        </div>
-
         <div class="tables-container">
             <div class="location-table">
                 <table>
                     <thead>
                         <tr>
-                            <th id="location-grouping-label">Country</th>
-                            <th>Count</th>
+                            <th>
+                                <span id="location-grouping-label">Country</span>
+                            </th>
+                            <th>
+                                <select id="location-grouping" onchange="updateFilters()">
+                                    <option value="Country" selected>Country</option>
+                                    <option value="Region">Region</option>
+                                    <option value="City">City</option>
+                                </select>
+                            </th>
                         </tr>
                     </thead>
                     <tbody id="location-data">
@@ -264,8 +253,17 @@
                 <table>
                     <thead>
                         <tr>
-                            <th id="device-grouping-label">Browser</th>
-                            <th>Count</th>
+                            <th>
+                                <span id="device-grouping-label">Browser</span>
+                                
+                            </th>
+                            <th>
+                                <select id="device-grouping" onchange="updateFilters()">
+                                    <option value="Browser" selected>Browser</option>
+                                    <option value="OperatingSystem">Operating System</option>
+                                    <option value="DeviceType">Device Type</option>
+                                </select>
+                            </th>
                         </tr>
                     </thead>
                     <tbody id="device-data">
@@ -278,8 +276,16 @@
                 <table>
                     <thead>
                         <tr>
-                            <th id="source-grouping-label">Source</th>
-                            <th>Count</th>
+                            <th>
+                                <span id="source-grouping-label">Source</span>
+                            </th>
+                            <th>
+                                <select id="source-grouping" onchange="updateFilters()">
+                                    <option value="Source" selected>Source</option>
+                                    <option value="Referrer">Referrer</option>
+                                    <option value="Campaign">Campaign</option>
+                                </select>
+                            </th>
                         </tr>
                     </thead>
                     <tbody id="source-data">
@@ -643,8 +649,10 @@
                         aspectRatio: 7/3,
                         plugins: {
                             title: {
-                                display: true,
-                                text: `${metric} (${timeframe})`
+                                display: false
+                            },
+                            legend: {
+                                display: false
                             },
                             tooltip: {
                                 mode: 'index',
