@@ -1,26 +1,22 @@
 mod event_handler;
+mod handlers;
 mod migrations;
 mod remote_ip;
-mod statistics;
 
-use axum::extract::{ConnectInfo, Query};
 use axum::http::HeaderMap;
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::{
-    extract::State,
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
+    Router,
 };
 use base64::{engine::general_purpose::STANDARD as base64, Engine};
 use event_handler::EventHandler;
+use handlers::*;
 use maxminddb::geoip2;
 use rusqlite::params;
-use serde::{Deserialize, Serialize};
-use serde_json;
 use sha2::{Digest, Sha256};
-use statistics::{Statistics, StatisticsAggregator};
 use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -37,50 +33,6 @@ struct AppState {
     db: Arc<Connection>,
     geoip: Arc<maxminddb::Reader<Vec<u8>>>,
     parser: Arc<UserAgentParser>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Event {
-    #[serde(rename = "u")]
-    page_url: String,
-    #[serde(rename = "n")]
-    event_type: String,
-    #[serde(rename = "r", default)]
-    custom_params: Option<serde_json::Value>,
-    #[serde(skip_deserializing)]
-    referrer: Option<String>,
-    #[serde(skip_deserializing)]
-    source: Option<String>,
-    #[serde(skip_deserializing)]
-    browser: String,
-    #[serde(skip_deserializing)]
-    operating_system: String,
-    #[serde(skip_deserializing)]
-    device_type: String,
-    #[serde(skip_deserializing)]
-    country: Option<String>,
-    #[serde(skip_deserializing)]
-    region: Option<String>,
-    #[serde(skip_deserializing)]
-    city: Option<String>,
-    #[serde(skip_deserializing)]
-    utm_source: Option<String>,
-    #[serde(skip_deserializing)]
-    utm_medium: Option<String>,
-    #[serde(skip_deserializing)]
-    utm_campaign: Option<String>,
-    #[serde(skip_deserializing)]
-    utm_content: Option<String>,
-    #[serde(skip_deserializing)]
-    utm_term: Option<String>,
-    #[serde(skip_deserializing)]
-    timestamp: i64,
-    #[serde(skip_deserializing)]
-    visitor_id: Option<String>,
-    #[serde(skip_deserializing)]
-    is_active: i64,
-    #[serde(skip_deserializing)]
-    last_activity_at: i64,
 }
 
 #[derive(Debug)]
@@ -256,16 +208,6 @@ impl AppState {
             }
         }
     }
-}
-
-#[derive(Deserialize)]
-struct StatisticsParams {
-    timeframe: statistics::TimeFrame,
-    granularity: statistics::Granularity,
-    metric: statistics::Metric,
-    location_grouping: statistics::LocationGrouping,
-    device_grouping: statistics::DeviceGrouping,
-    source_grouping: statistics::SourceGrouping,
 }
 
 async fn basic_auth(
@@ -448,59 +390,4 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     Ok(())
-}
-
-async fn health_check() -> StatusCode {
-    StatusCode::OK
-}
-
-async fn track_event(
-    State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    Json(event): Json<Event>,
-) -> Result<StatusCode, StatusCode> {
-    let handler = EventHandler::new(state);
-    handler.handle_event(addr, headers, event).await
-}
-
-async fn serve_script() -> impl axum::response::IntoResponse {
-    const SCRIPT: &str = include_str!("script.js");
-
-    axum::response::Response::builder()
-        .header("Content-Type", "application/javascript")
-        .header("Cache-Control", "max-age=3600")
-        .body(SCRIPT.to_string())
-        .unwrap()
-}
-
-async fn serve_dashboard() -> impl axum::response::IntoResponse {
-    const DASHBOARD_HTML: &str = include_str!("dashboard.html");
-
-    axum::response::Response::builder()
-        .header("Content-Type", "text/html")
-        .body(DASHBOARD_HTML.to_string())
-        .unwrap()
-}
-
-async fn get_statistics(
-    State(state): State<AppState>,
-    Query(params): Query<StatisticsParams>,
-) -> Result<Json<Statistics>, StatusCode> {
-    let aggregator = StatisticsAggregator::new(state.db);
-    aggregator
-        .get_filtered_statistics(
-            params.timeframe,
-            params.granularity,
-            params.metric,
-            params.location_grouping,
-            params.device_grouping,
-            params.source_grouping,
-        )
-        .await
-        .map(Json)
-        .map_err(|e| {
-            error!("Failed to get statistics: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })
 }

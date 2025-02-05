@@ -1,41 +1,148 @@
+use std::sync::Arc;
+use chrono::DateTime;
 use chrono::Timelike;
 use chrono::Utc;
-use chrono::DateTime;
 use rusqlite::params;
-use std::sync::Arc;
 use tokio_rusqlite::Connection;
 use tracing::error;
+
+use crate::AppState;
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Json,
+};
+use serde::{Deserialize, Serialize};
 
 pub struct StatisticsAggregator {
     db: Arc<Connection>,
 }
 
-#[derive(serde::Deserialize, Clone, Copy)]
+#[derive(Deserialize)]
+pub struct StatisticsParams {
+    pub timeframe: TimeFrame,
+    pub granularity: Granularity,
+    pub metric: Metric,
+    pub location_grouping: LocationGrouping,
+    pub device_grouping: DeviceGrouping,
+    pub source_grouping: SourceGrouping,
+}
+
+#[derive(Deserialize)]
+pub enum TimeFrame {
+    Realtime,
+    Today,
+    Yesterday,
+    Last7Days,
+    Last30Days,
+    AllTime,
+}
+
+#[derive(Deserialize)]
+pub enum Granularity {
+    Minutes,
+    Hours,
+    Days,
+}
+
+#[derive(Deserialize, Clone, Copy)]
 pub enum Metric {
     UniqueVisitors,
     Visits,
     Pageviews,
 }
 
-#[derive(serde::Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy)]
 pub enum LocationGrouping {
     Country,
     Region,
     City,
 }
 
-#[derive(serde::Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy)]
 pub enum DeviceGrouping {
     Browser,
     OperatingSystem,
     DeviceType,
 }
 
-#[derive(serde::Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy)]
 pub enum SourceGrouping {
     Source,
     Referrer,
     Campaign,
+}
+
+#[derive(Serialize)]
+pub struct Statistics {
+    stats: Vec<(i64, i64)>,
+    aggregates: AggregateMetrics,
+    realtime_aggregates: AggregateMetrics,
+    location_metrics: Vec<LocationMetrics>,
+    device_metrics: Vec<DeviceMetrics>,
+    source_metrics: Vec<SourceMetrics>,
+}
+
+#[derive(Serialize)]
+pub struct AggregateMetrics {
+    pub unique_visitors: i64,
+    pub total_visits: i64,
+    pub total_pageviews: i64,
+    pub current_visits: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct LocationMetrics {
+    pub country: String,
+    pub region: Option<String>,
+    pub city: Option<String>,
+    pub visitors: i64,
+    pub visits: i64,
+    pub pageviews: i64,
+}
+
+#[derive(Serialize)]
+pub struct DeviceMetrics {
+    pub browser: String,
+    pub operating_system: String,
+    pub device_type: String,
+    pub visitors: i64,
+    pub visits: i64,
+    pub pageviews: i64,
+}
+
+#[derive(Serialize)]
+pub struct SourceMetrics {
+    pub source: String,
+    pub referrer: Option<String>,
+    pub utm_source: Option<String>,
+    pub utm_medium: Option<String>,
+    pub utm_campaign: Option<String>,
+    pub visitors: i64,
+    pub visits: i64,
+    pub pageviews: i64,
+}
+
+pub async fn get_statistics(
+    State(state): State<AppState>,
+    Query(params): Query<StatisticsParams>,
+) -> Result<Json<Statistics>, StatusCode> {
+    let aggregator = StatisticsAggregator::new(state.db);
+    aggregator
+        .get_filtered_statistics(
+            params.timeframe,
+            params.granularity,
+            params.metric,
+            params.location_grouping,
+            params.device_grouping,
+            params.source_grouping,
+        )
+        .await
+        .map(Json)
+        .map_err(|e| {
+            error!("Failed to get statistics: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
 }
 
 impl StatisticsAggregator {
@@ -680,6 +787,8 @@ impl StatisticsAggregator {
                         SUM(pageviews) as pageviews
                      FROM location_aggregated_metrics
                      WHERE period_name = ?
+                     AND start_ts >= ?
+                     AND end_ts <= ?
                      GROUP BY {}
                      ORDER BY {} DESC",
                     group_by_clause, metric_str
@@ -688,7 +797,7 @@ impl StatisticsAggregator {
                 let mut stmt = conn.prepare(&query)?;
 
                 // TODO: Handle AllTime
-                let metrics = stmt.query_map([period_name.unwrap_or("")], |row| {
+                let metrics = stmt.query_map(params![period_name.unwrap_or(""), start_ts, end_ts], |row| {
                     let visitors: i64 = row.get(3)?;
                     let visits: i64 = row.get(4)?;
                     let pageviews: i64 = row.get(5)?;
@@ -899,71 +1008,4 @@ impl StatisticsAggregator {
             })
             .await
     }
-}
-
-#[derive(serde::Deserialize)]
-pub enum TimeFrame {
-    Realtime,
-    Today,
-    Yesterday,
-    Last7Days,
-    Last30Days,
-    AllTime,
-}
-
-#[derive(serde::Deserialize)]
-pub enum Granularity {
-    Minutes,
-    Hours,
-    Days,
-}
-
-#[derive(serde::Serialize)]
-pub struct AggregateMetrics {
-    pub unique_visitors: i64,
-    pub total_visits: i64,
-    pub total_pageviews: i64,
-    pub current_visits: Option<i64>,
-}
-
-#[derive(serde::Serialize)]
-pub struct LocationMetrics {
-    pub country: String,
-    pub region: Option<String>,
-    pub city: Option<String>,
-    pub visitors: i64,
-    pub visits: i64,
-    pub pageviews: i64,
-}
-
-#[derive(serde::Serialize)]
-pub struct DeviceMetrics {
-    pub browser: String,
-    pub operating_system: String,
-    pub device_type: String,
-    pub visitors: i64,
-    pub visits: i64,
-    pub pageviews: i64,
-}
-
-#[derive(serde::Serialize)]
-pub struct SourceMetrics {
-    pub source: String,
-    pub referrer: Option<String>,
-    pub utm_source: Option<String>,
-    pub utm_medium: Option<String>,
-    pub utm_campaign: Option<String>,
-    pub visitors: i64,
-    pub visits: i64,
-    pub pageviews: i64,
-}
-
-#[derive(serde::Serialize)]
-pub struct Statistics {
-    stats: Vec<(i64, i64)>,
-    aggregates: AggregateMetrics,
-    realtime_aggregates: AggregateMetrics,
-    location_metrics: Vec<LocationMetrics>,
-    device_metrics: Vec<DeviceMetrics>,
-    source_metrics: Vec<SourceMetrics>,
 }

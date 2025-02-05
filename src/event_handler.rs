@@ -5,9 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, instrument, warn};
 use url::Url;
 
+use crate::handlers::Event;
 use crate::remote_ip::RemoteIp;
 use crate::AppState;
-use crate::Event;
 
 pub struct EventHandler {
     state: AppState,
