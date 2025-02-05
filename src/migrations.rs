@@ -521,6 +521,41 @@ fn get_migrations() -> Vec<Migration> {
 
             Ok(())
         }),
+        Migration::new("Add last_visited_url to events table", 16, |conn| {
+            // Add the new column
+            conn.execute("ALTER TABLE events ADD COLUMN last_visited_url TEXT", [])?;
+
+            // Update historical visit records with their last visited URL
+            conn.execute(
+                "WITH LastPageUrls AS (
+                    SELECT 
+                        v.id as visit_id,
+                        v.visitor_id,
+                        v.timestamp as visit_timestamp,
+                        v.last_activity_at,
+                        (
+                            SELECT e.page_url
+                            FROM events e
+                            WHERE e.visitor_id = v.visitor_id
+                            AND e.timestamp <= v.last_activity_at
+                            AND e.timestamp >= v.timestamp
+                            ORDER BY e.timestamp DESC
+                            LIMIT 1
+                        ) as last_url
+                    FROM events v
+                    WHERE v.event_type = 'visit'
+                )
+                UPDATE events
+                SET last_visited_url = (
+                    SELECT lpu.last_url
+                    FROM LastPageUrls lpu
+                    WHERE lpu.visit_id = events.id
+                )
+                WHERE event_type = 'visit'",
+                [],
+            )?;
+            Ok(())
+        }),
     ]
 }
 

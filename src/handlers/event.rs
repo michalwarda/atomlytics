@@ -55,6 +55,8 @@ pub struct Event {
     pub is_active: i64,
     #[serde(skip_deserializing)]
     pub last_activity_at: i64,
+    #[serde(skip_deserializing)]
+    pub last_visited_url: Option<String>,
 }
 
 pub struct EventHandler {
@@ -195,6 +197,7 @@ impl EventHandler {
         let visitor_id = event.visitor_id.clone();
         let is_active = event.is_active;
         let last_activity_at = event.last_activity_at;
+        let last_visited_url = event.last_visited_url.clone();
         debug!(
             event_type = %event_type,
             page_url = %page_url,
@@ -210,9 +213,9 @@ impl EventHandler {
                         event_type, page_url, referrer, source, browser, operating_system, 
                         device_type, country, region, city,
                         utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                        timestamp, visitor_id, custom_params, is_active, last_activity_at
+                        timestamp, visitor_id, custom_params, is_active, last_activity_at, last_visited_url
                     ) VALUES (
-                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21
                     )",
                     params![
                         &event_type,
@@ -235,6 +238,7 @@ impl EventHandler {
                         &custom_params,
                         &is_active,
                         &last_activity_at,
+                        &last_visited_url,
                     ],
                 )
                 .map(|_| {
@@ -261,6 +265,7 @@ impl EventHandler {
         let visitor_id_clone: String = visitor_id.to_string();
         let visitor_id_for_query = visitor_id_clone.clone();
         let timestamp = event.timestamp;
+        let page_url = event.page_url.clone();
         let result = self
             .state
             .db
@@ -279,10 +284,10 @@ impl EventHandler {
                     Ok((visit_id, last_ts)) => {
                         if timestamp - last_ts <= 1800 {
                             println!("Visit exists and is active, updating last_activity_at");
-                            // Visit exists and is active, update last_activity_at
+                            // Visit exists and is active, update last_activity_at and last_visited_url
                             conn.execute(
-                                "UPDATE events SET last_activity_at = ?1 WHERE id = ?2",
-                                params![timestamp, visit_id],
+                                "UPDATE events SET last_activity_at = ?1, last_visited_url = ?2 WHERE id = ?3",
+                                params![timestamp, page_url, visit_id],
                             )?;
                             Ok(false)
                         } else {
@@ -322,6 +327,7 @@ impl EventHandler {
                 custom_params: event.custom_params.clone(),
                 is_active: 1,
                 last_activity_at: event.timestamp,
+                last_visited_url: Some(event.page_url.clone()),
             };
 
             self.save_event(&visit_event, None).await?;
