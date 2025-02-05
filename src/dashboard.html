@@ -852,7 +852,15 @@
                                 },
                                 suggestedMax: Math.max(...values) * 1.1,
                                 ticks: {
-                                    padding: 10
+                                    padding: 10,
+                                    callback: function(value) {
+                                        if (metric === 'AvgVisitDuration') {
+                                            return Math.round(value / 60) + 'm';
+                                        } else if (metric === 'BounceRate') {
+                                            return value + '%';
+                                        }
+                                        return value;
+                                    }
                                 }
                             }
                         }
@@ -866,6 +874,18 @@
                 chart.options.scales.x.title.text = granularity === 'Days' ? 'Date' : 'Time';
                 chart.options.scales.y.title.text = metric;
                 chart.options.scales.y.suggestedMax = Math.max(...values) * 1.1;
+                // Update Y-axis ticks configuration
+                chart.options.scales.y.ticks = {
+                    padding: 10,
+                    callback: function(value) {
+                        if (metric === 'AvgVisitDuration') {
+                            return Math.round(value / 60) + 'm';
+                        } else if (metric === 'BounceRate') {
+                            return value + '%';
+                        }
+                        return value;
+                    }
+                };
                 chart.update();
             }
 
