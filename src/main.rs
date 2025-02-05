@@ -3,20 +3,14 @@ mod middleware;
 mod migrations;
 mod remote_ip;
 
-use axum::http::HeaderMap;
-use axum::middleware::{self, Next};
-use axum::response::Response;
 use axum::{
-    http::StatusCode,
     routing::{get, post},
     Router,
 };
-use base64::{engine::general_purpose::STANDARD as base64, Engine};
 use handlers::*;
 use maxminddb::geoip2;
 use rusqlite::params;
 use sha2::{Digest, Sha256};
-use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -288,7 +282,7 @@ async fn main() -> anyhow::Result<()> {
             Router::new()
                 .route("/dashboard", get(serve_dashboard))
                 .route("/api/statistics", get(get_statistics))
-                .layer(middleware::from_fn(middleware::basic_auth)),
+                .layer(axum::middleware::from_fn(middleware::basic_auth)),
         )
         .layer(
             TraceLayer::new_for_http()
