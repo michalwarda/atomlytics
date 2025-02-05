@@ -33,6 +33,9 @@
         h1 {
             color: #333;
             margin-bottom: 30px;
+            font-size: 2.5em;
+            font-weight: 600;
+            letter-spacing: -0.5px;
         }
         .filters {
             display: flex;
@@ -67,9 +70,42 @@
             padding: 20px;
             border-radius: 8px;
             text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+        .metric:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .metric.active {
+            background: #e3f2fd;
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2);
+            border: 1px solid rgba(33, 150, 243, 0.3);
         }
         .metric.hidden {
             visibility: hidden;
+        }
+        .live-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 8px;
+            height: 8px;
+            background-color: #4CAF50;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4);
+            }
+            70% {
+                box-shadow: 0 0 0 6px rgba(76, 175, 80, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+            }
         }
         .metric h3 {
             margin: 0 0 10px 0;
@@ -184,19 +220,9 @@
 </head>
 <body>
     <div class="container">
-        <h1>Analytics Dashboard</h1>
+        <h1>Atomlytics</h1>
         
         <div class="filters">
-            <div class="filter-group">
-                <label for="metric">Metric:</label>
-                <select id="metric" onchange="updateFilters()">
-                    <option value="UniqueVisitors" selected>Unique Visitors</option>
-                    <option value="Visits">Total Visits</option>
-                    <option value="Pageviews">Total Pageviews</option>
-                    <option value="AvgVisitDuration">Avg Visit Duration</option>
-                    <option value="BounceRate">Bounce Rate</option>
-                </select>
-            </div>
             <div class="filter-group">
                 <label for="timeframe">Time Frame:</label>
                 <select id="timeframe" onchange="updateFilters()">
@@ -309,8 +335,7 @@
             };
         }
 
-        function updateQueryParams() {
-            const metric = document.getElementById('metric').value;
+        function updateQueryParams(newMetric) {
             const timeframe = document.getElementById('timeframe').value;
             const granularity = document.getElementById('granularity').value;
             const locationGrouping = document.getElementById('location-grouping').value;
@@ -318,7 +343,7 @@
             const sourceGrouping = document.getElementById('source-grouping').value;
             
             const params = new URLSearchParams();
-            params.set('metric', metric);
+            params.set('metric', newMetric || document.querySelector('.metric.active')?.getAttribute('data-metric') || 'UniqueVisitors');
             params.set('timeframe', timeframe);
             params.set('granularity', granularity);
             params.set('locationGrouping', locationGrouping);
@@ -329,8 +354,7 @@
             window.history.pushState({}, '', newUrl);
         }
 
-        function updateFilters() {
-            const metric = document.getElementById('metric').value;
+        function updateFilters(newMetric) {
             const timeframe = document.getElementById('timeframe').value;
             const granularitySelect = document.getElementById('granularity');
             const granularity = granularitySelect.value;
@@ -357,7 +381,7 @@
                 granularitySelect.value = granularity;
             } 
             
-            updateQueryParams();
+            updateQueryParams(newMetric);
             fetchData();
         }
 
@@ -381,6 +405,12 @@
             const timeframe = document.getElementById('timeframe').value;
             const isRealtime = timeframe === 'Realtime';
             const metricsContainer = document.querySelector('.metrics-container');
+            console.log(window.location.search);
+            const params = new URLSearchParams(window.location.search);
+            console.log(params)
+            console.log(params.get('metric'));
+            console.log(document.querySelector('.metric.active')?.getAttribute('data-metric'));
+            const currentMetric = document.querySelector('.metric.active')?.getAttribute('data-metric') || params.get('metric') || 'UniqueVisitors';
 
             // Clear existing metrics
             metricsContainer.innerHTML = '';
@@ -391,37 +421,43 @@
                     id: 'current-visits',
                     label: 'Current Visitors',
                     value: data.realtime_aggregates.current_visits,
-                    showInRealtime: true
+                    showInRealtime: true,
+                    metricType: 'CurrentVisits'
                 },
                 {
                     id: 'unique-visitors',
                     label: 'Unique Visitors',
                     value: data.aggregates.unique_visitors,
-                    showInRealtime: false
+                    showInRealtime: false,
+                    metricType: 'UniqueVisitors'
                 },
                 {
                     id: 'total-visits',
                     label: 'Total Visits',
                     value: data.aggregates.total_visits,
-                    showInRealtime: true
+                    showInRealtime: true,
+                    metricType: 'Visits'
                 },
                 {
                     id: 'total-pageviews',
                     label: 'Total Pageviews',
                     value: data.aggregates.total_pageviews,
-                    showInRealtime: true
+                    showInRealtime: true,
+                    metricType: 'Pageviews'
                 },
                 {
                     id: 'avg-visit-duration',
                     label: 'Avg Visit Duration',
                     value: formatDuration(data.aggregates.avg_visit_duration),
-                    showInRealtime: false
+                    showInRealtime: false,
+                    metricType: 'AvgVisitDuration'
                 },
                 {
                     id: 'bounce-rate',
                     label: 'Bounce Rate',
                     value: `${data.aggregates.bounce_rate}%`,
-                    showInRealtime: false
+                    showInRealtime: false,
+                    metricType: 'BounceRate'
                 }
             ];
 
@@ -429,11 +465,34 @@
                 if (isRealtime && !metric.showInRealtime) return;
 
                 const metricDiv = document.createElement('div');
-                metricDiv.className = 'metric';
-                metricDiv.innerHTML = `
+                metricDiv.className = `metric ${metric.metricType === currentMetric ? 'active' : ''} ${metric.metricType === 'CurrentVisits' ? 'live' : ''}`;
+                metricDiv.setAttribute('data-metric', metric.metricType);
+                
+                if (metric.metricType === 'CurrentVisits') {
+                    metricDiv.onclick = () => {
+                        document.getElementById('timeframe').value = 'Realtime';
+                        document.querySelectorAll('.metric').forEach(m => m.classList.remove('active'));
+                        document.querySelector('[data-metric="UniqueVisitors"]')?.classList.add('active');
+                        updateFilters('UniqueVisitors');
+                    };
+                } else {
+                    metricDiv.onclick = () => {
+                        document.querySelectorAll('.metric').forEach(m => m.classList.remove('active'));
+                        metricDiv.classList.add('active');
+                        updateFilters(metric.metricType);
+                    };
+                }
+
+                let content = `
                     <h3>${metric.label}</h3>
                     <p id="${metric.id}">${metric.value}</p>
                 `;
+
+                if (metric.metricType === 'CurrentVisits') {
+                    content += '<div class="live-indicator"></div>';
+                }
+
+                metricDiv.innerHTML = content;
                 metricsContainer.appendChild(metricDiv);
             });
 
@@ -447,7 +506,7 @@
             
             if (data.location_metrics) {
                 const locationGrouping = document.getElementById('location-grouping').value;
-                const metric = document.getElementById('metric').value;
+                const metric = document.querySelector('.metric.active')?.getAttribute('data-metric') || 'UniqueVisitors';
 
                 data.location_metrics.forEach(({country, region, city, visitors, visits, pageviews, avg_visit_duration, bounce_rate}) => {
                     const row = document.createElement('tr');
@@ -498,7 +557,7 @@
             
             if (data.device_metrics) {
                 const deviceGrouping = document.getElementById('device-grouping').value;
-                const metric = document.getElementById('metric').value;
+                const metric = document.querySelector('.metric.active')?.getAttribute('data-metric') || 'UniqueVisitors';
 
                 data.device_metrics.forEach(({browser, operating_system, device_type, visitors, visits, pageviews, avg_visit_duration, bounce_rate}) => {
                     const row = document.createElement('tr');
@@ -549,7 +608,7 @@
             
             if (data.source_metrics) {
                 const sourceGrouping = document.getElementById('source-grouping').value;
-                const metric = document.getElementById('metric').value;
+                const metric = document.querySelector('.metric.active')?.getAttribute('data-metric') || 'UniqueVisitors';
 
                 data.source_metrics.forEach(({source, referrer, utm_source, utm_medium, utm_campaign, visitors, visits, pageviews, avg_visit_duration, bounce_rate}) => {
                     const row = document.createElement('tr');
@@ -604,7 +663,7 @@
         async function fetchData() {
             const timeframe = document.getElementById('timeframe').value;
             const granularity = document.getElementById('granularity').value;
-            const metric = document.getElementById('metric').value;
+            const metric = document.querySelector('.metric.active')?.getAttribute('data-metric') || 'UniqueVisitors';
             const locationGrouping = document.getElementById('location-grouping').value;
             const deviceGrouping = document.getElementById('device-grouping').value;
             const sourceGrouping = document.getElementById('source-grouping').value;
@@ -712,7 +771,6 @@
 
         // Initialize filters from URL params
         const initialParams = getQueryParams();
-        document.getElementById('metric').value = initialParams.metric;
         document.getElementById('timeframe').value = initialParams.timeframe;
         document.getElementById('granularity').value = initialParams.granularity;
         document.getElementById('location-grouping').value = initialParams.locationGrouping;
@@ -720,7 +778,7 @@
         document.getElementById('source-grouping').value = initialParams.sourceGrouping;
 
         // Initialize filters and data
-        updateFilters();
+        updateFilters(initialParams.metric);
         
         // Update interval based on timeframe
         setInterval(() => {
