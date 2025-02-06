@@ -29,8 +29,17 @@ impl LiveReload {
     }
 }
 
+#[cfg(debug_assertions)]
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<crate::AppState>) -> Response {
     ws.on_upgrade(|socket| handle_socket(socket, state.live_reload))
+}
+
+#[cfg(not(debug_assertions))]
+pub async fn ws_handler(_: WebSocketUpgrade, _: State<crate::AppState>) -> Response {
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::NOT_FOUND)
+        .body(axum::body::Body::empty())
+        .unwrap()
 }
 
 async fn handle_socket(socket: WebSocket, live_reload: Arc<LiveReload>) {
