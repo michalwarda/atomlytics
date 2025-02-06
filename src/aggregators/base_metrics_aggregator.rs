@@ -2,7 +2,7 @@ use chrono::{Timelike, Utc};
 use rusqlite::params;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
-use tracing::debug;
+use tracing::{debug, error};
 
 use super::{Metric, TimeFrame};
 
@@ -56,11 +56,14 @@ impl BaseMetricsAggregator {
             })
             .await;
 
-        if let Err(ref e) = result {
-            debug!(
-                "Failed SQL: {}",
-                query_clone.replace("?", &thirty_minutes_ago_ts.to_string())
-            );
+        let query_string = query_clone.replace("?", &thirty_minutes_ago_ts.to_string());
+
+        debug!(
+            "Removing unused active aggregated metrics: {}",
+            query_string
+        );
+        if let Err(ref _e) = result {
+            error!("Failed SQL: {}", query_string);
         }
         result.map(|_| ())
     }
@@ -127,14 +130,15 @@ impl BaseMetricsAggregator {
             })
             .await;
 
-        if let Err(ref e) = result {
-            debug!(
-                "Failed SQL: {}",
-                query_clone
-                    .replace("?1", &format!("'{}'", period_type_clone))
-                    .replace("?2", &time_division.to_string())
-                    .replace("?3", &start_timestamp.to_string())
-            );
+        let query_string = query_clone
+            .replace("?1", &format!("'{}'", period_type_clone))
+            .replace("?2", &time_division.to_string())
+            .replace("?3", &start_timestamp.to_string());
+
+        debug!("Aggregating stats for period: {}", query_string);
+
+        if let Err(ref _e) = result {
+            error!("Failed SQL: {}", query_string);
         }
         result.map(|_| ())
     }
@@ -203,16 +207,17 @@ impl BaseMetricsAggregator {
             })
             .await;
 
-        if let Err(ref e) = result {
-            debug!(
-                "Failed SQL: {}",
-                query_clone
-                    .replace("?", &format!("'{}'", period_name_clone))
-                    .replacen("?", &start_ts.to_string(), 1)
-                    .replacen("?", &end_ts.to_string(), 1)
-                    .replacen("?", &start_ts.to_string(), 1)
-                    .replacen("?", &end_ts.to_string(), 1)
-            );
+        let query_string = query_clone
+            .replacen("?", &format!("'{}'", period_name_clone), 1)
+            .replacen("?", &start_ts.to_string(), 1)
+            .replacen("?", &end_ts.to_string(), 1)
+            .replacen("?", &start_ts.to_string(), 1)
+            .replacen("?", &end_ts.to_string(), 1);
+
+        debug!("Aggregating metrics for period: {}", query_string);
+
+        if let Err(ref _e) = result {
+            error!("Failed SQL: {}", query_string);
         }
         result.map(|_| ())
     }
@@ -307,14 +312,15 @@ impl BaseMetricsAggregator {
             })
             .await;
 
+        let query_string = query_clone
+            .replacen("?", &format!("'{}'", period_name.unwrap_or("")), 1)
+            .replacen("?", &start_ts.to_string(), 1)
+            .replacen("?", &end_ts.to_string(), 1);
+
+        debug!("Getting metrics: {}", query_string);
+
         if let Err(ref _e) = result {
-            debug!(
-                "Failed SQL: {}",
-                query_clone
-                    .replace("?", &format!("'{}'", period_name.unwrap_or("")))
-                    .replacen("?", &start_ts.to_string(), 1)
-                    .replacen("?", &end_ts.to_string(), 1)
-            );
+            error!("Failed SQL: {}", query_string);
         }
         result
     }
