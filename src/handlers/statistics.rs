@@ -9,6 +9,7 @@ use tracing::error;
 
 use crate::aggregators::device_metrics_aggregator::DeviceMetricsAggregator;
 use crate::aggregators::location_metrics_aggregator::LocationMetricsAggregator;
+use crate::aggregators::page_metrics_aggregator::PageMetricsAggregator;
 use crate::aggregators::source_metrics_aggregator::SourceMetricsAggregator;
 use crate::aggregators::AggregateMetrics;
 use crate::aggregators::DeviceGrouping;
@@ -17,6 +18,8 @@ use crate::aggregators::Granularity;
 use crate::aggregators::LocationGrouping;
 use crate::aggregators::LocationMetrics;
 use crate::aggregators::Metric;
+use crate::aggregators::PageGrouping;
+use crate::aggregators::PageMetrics;
 use crate::aggregators::SourceGrouping;
 use crate::aggregators::SourceMetrics;
 use crate::aggregators::TimeFrame;
@@ -33,6 +36,7 @@ pub struct StatisticsAggregator {
     location_metrics_aggregator: LocationMetricsAggregator,
     source_metrics_aggregator: SourceMetricsAggregator,
     device_metrics_aggregator: DeviceMetricsAggregator,
+    page_metrics_aggregator: PageMetricsAggregator,
 }
 
 #[derive(Serialize)]
@@ -43,6 +47,7 @@ pub struct Statistics {
     location_metrics: Vec<LocationMetrics>,
     device_metrics: Vec<DeviceMetrics>,
     source_metrics: Vec<SourceMetrics>,
+    page_metrics: Vec<PageMetrics>,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +58,7 @@ pub struct StatisticsParams {
     pub location_grouping: LocationGrouping,
     pub device_grouping: DeviceGrouping,
     pub source_grouping: SourceGrouping,
+    pub page_grouping: PageGrouping,
 }
 
 
@@ -69,6 +75,7 @@ pub async fn get_statistics(
             params.location_grouping,
             params.device_grouping,
             params.source_grouping,
+            params.page_grouping,
         )
         .await
         .map(Json)
@@ -89,11 +96,15 @@ impl StatisticsAggregator {
         let db_clone = db.clone();
         let device_metrics_aggregator = DeviceMetricsAggregator::new(db_clone);
 
+        let db_clone = db.clone();
+        let page_metrics_aggregator = PageMetricsAggregator::new(db_clone);
+
         Self { 
             db,
             location_metrics_aggregator,
             source_metrics_aggregator,
             device_metrics_aggregator,
+            page_metrics_aggregator,
         }
     }
 
@@ -132,6 +143,7 @@ impl StatisticsAggregator {
         self.location_metrics_aggregator.remove_unused_active_aggregated_metrics(thirty_minutes_ago_ts).await?;
         self.source_metrics_aggregator.remove_unused_active_aggregated_metrics(thirty_minutes_ago_ts).await?;
         self.device_metrics_aggregator.remove_unused_active_aggregated_metrics(thirty_minutes_ago_ts).await?;
+        self.page_metrics_aggregator.remove_unused_active_aggregated_metrics(thirty_minutes_ago_ts).await?;
         self.db.call(move |conn| {
             conn.execute("DELETE FROM aggregated_metrics WHERE period_name = 'realtime' AND start_ts < ?", params![thirty_minutes_ago_ts])?;
             Ok(())
@@ -161,6 +173,7 @@ impl StatisticsAggregator {
         self.location_metrics_aggregator.aggregate_stats_for_period(period_type.as_str(), time_division, start_timestamp).await?;
         self.source_metrics_aggregator.aggregate_stats_for_period(period_type.as_str(), time_division, start_timestamp).await?;
         self.device_metrics_aggregator.aggregate_stats_for_period(period_type.as_str(), time_division, start_timestamp).await?;
+        self.page_metrics_aggregator.aggregate_stats_for_period(period_type.as_str(), time_division, start_timestamp).await?;
 
         self.db
             .call(move |conn| {
@@ -252,6 +265,7 @@ impl StatisticsAggregator {
         self.location_metrics_aggregator.aggregate_metrics_for_period(period_name.as_str(), start_ts, end_ts).await?;
         self.source_metrics_aggregator.aggregate_metrics_for_period(period_name.as_str(), start_ts, end_ts).await?;
         self.device_metrics_aggregator.aggregate_metrics_for_period(period_name.as_str(), start_ts, end_ts).await?;
+        self.page_metrics_aggregator.aggregate_metrics_for_period(period_name.as_str(), start_ts, end_ts).await?;
 
         self.db
             .call(move |conn| {
@@ -353,6 +367,7 @@ impl StatisticsAggregator {
         location_grouping: LocationGrouping,
         device_grouping: DeviceGrouping,
         source_grouping: SourceGrouping,
+        page_grouping: PageGrouping,
     ) -> Result<Statistics, tokio_rusqlite::Error> {
         let now = Utc::now()
             .with_second(0)
@@ -411,6 +426,8 @@ impl StatisticsAggregator {
 
         let source_metrics = self.get_source_metrics(&timeframe, &metric, source_grouping).await?;
 
+        let page_metrics = self.get_page_metrics(&timeframe, &metric, page_grouping).await?;
+
         Ok(Statistics {
             stats,
             aggregates,
@@ -418,6 +435,7 @@ impl StatisticsAggregator {
             location_metrics,
             device_metrics,
             source_metrics,
+            page_metrics,
         })
     }
 
@@ -550,5 +568,14 @@ impl StatisticsAggregator {
         grouping: SourceGrouping,
     ) -> Result<Vec<SourceMetrics>, tokio_rusqlite::Error> {
         self.source_metrics_aggregator.get_metrics(timeframe, metric, grouping).await
+    }
+
+    async fn get_page_metrics(
+        &self,
+        timeframe: &TimeFrame,
+        metric: &Metric,
+        grouping: PageGrouping,
+    ) -> Result<Vec<PageMetrics>, tokio_rusqlite::Error> {
+        self.page_metrics_aggregator.get_metrics(timeframe, metric, grouping).await
     }
 }

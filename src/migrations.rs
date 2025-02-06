@@ -686,6 +686,76 @@ fn get_migrations() -> Vec<Migration> {
 
             Ok(())
         }),
+        Migration::new("Add page metrics tables", 18, |conn| {
+            // Create page statistics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS page_statistics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_type TEXT NOT NULL,
+                    period_start INTEGER NOT NULL,
+                    page_path TEXT NOT NULL,
+                    entry_page_path TEXT NOT NULL,
+                    exit_page_path TEXT NOT NULL,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    avg_visit_duration INTEGER,
+                    bounce_rate INTEGER,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_type, period_start, page_path, entry_page_path, exit_page_path)
+                )",
+                [],
+            )?;
+
+            // Create page aggregated metrics table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS page_aggregated_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_name TEXT NOT NULL,
+                    start_ts INTEGER NOT NULL,
+                    end_ts INTEGER NOT NULL,
+                    page_path TEXT NOT NULL,
+                    entry_page_path TEXT NOT NULL,
+                    exit_page_path TEXT NOT NULL,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    avg_visit_duration INTEGER,
+                    bounce_rate INTEGER,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(period_name, start_ts, end_ts, page_path, entry_page_path, exit_page_path)
+                )",
+                [],
+            )?;
+
+            // Add indices for better query performance
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_page_statistics_period 
+                 ON page_statistics(period_type, period_start)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_page_aggregated_metrics_period 
+                 ON page_aggregated_metrics(period_name, start_ts, end_ts)",
+                [],
+            )?;
+
+            // Add indices for the path columns since they'll be used in grouping
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_page_statistics_paths 
+                 ON page_statistics(page_path, entry_page_path, exit_page_path)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_page_aggregated_metrics_paths 
+                 ON page_aggregated_metrics(page_path, entry_page_path, exit_page_path)",
+                [],
+            )?;
+
+            Ok(())
+        }),
     ]
 }
 
