@@ -941,13 +941,14 @@
                                 suggestedMax: Math.max(...values) * 1.1,
                                 ticks: {
                                     padding: 10,
+                                    stepSize: 1,
                                     callback: function(value) {
                                         if (metric === 'AvgVisitDuration') {
                                             return Math.round(value / 60) + 'm';
                                         } else if (metric === 'BounceRate') {
-                                            return value + '%';
+                                            return Math.round(value) + '%';
                                         }
-                                        return value;
+                                        return Math.round(value);
                                     }
                                 }
                             }
@@ -965,13 +966,14 @@
                 // Update Y-axis ticks configuration
                 chart.options.scales.y.ticks = {
                     padding: 10,
+                    stepSize: 1,
                     callback: function(value) {
                         if (metric === 'AvgVisitDuration') {
                             return Math.round(value / 60) + 'm';
                         } else if (metric === 'BounceRate') {
-                            return value + '%';
+                            return Math.round(value) + '%';
                         }
-                        return value;
+                        return Math.round(value);
                     }
                 };
                 chart.update();
