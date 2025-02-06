@@ -24,10 +24,12 @@ use tracing::{error, info, warn, Level, Span};
 use uaparser::{Parser, UserAgentParser};
 
 #[derive(Clone)]
-struct AppState {
+pub struct AppState {
     db: Arc<Connection>,
     geoip: Arc<maxminddb::Reader<Vec<u8>>>,
     parser: Arc<UserAgentParser>,
+    #[cfg(debug_assertions)]
+    live_reload: Arc<LiveReload>,
 }
 
 #[derive(Debug)]
@@ -206,7 +208,7 @@ impl AppState {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     let env = std::env::var("RUST_LOG").unwrap_or("info".to_string());
     tracing_subscriber::fmt()
@@ -243,6 +245,8 @@ async fn main() -> anyhow::Result<()> {
         db: Arc::new(db),
         geoip: Arc::new(geoip),
         parser: Arc::new(parser),
+        #[cfg(debug_assertions)]
+        live_reload: Arc::new(LiveReload::new()),
     };
 
     // Ensure we have an initial salt
@@ -279,6 +283,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         .route("/api/event", post(track_event))
         .route("/script.js", get(serve_script))
+        .route("/live-reload", get(ws_handler))
         .nest_service("/", ServeDir::new("src/assets"))
         .nest(
             "/",

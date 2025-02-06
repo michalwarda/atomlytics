@@ -1,12 +1,13 @@
-mod dashboard;
-mod event;
-mod health;
-mod script;
-mod statistics;
+pub mod dashboard;
+pub mod event;
+pub mod health;
+pub mod live_reload;
+pub mod script;
+pub mod statistics;
 
-pub use dashboard::serve_dashboard;
-pub use event::track_event;
-pub use health::health_check;
-pub use script::serve_script;
-pub use statistics::get_statistics;
-pub use statistics::StatisticsAggregator;
+pub use dashboard::*;
+pub use event::*;
+pub use health::*;
+pub use live_reload::*;
+pub use script::*;
+pub use statistics::*;

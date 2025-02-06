@@ -5,9 +5,12 @@ edition = "2021"
 
 [dependencies]
 # Web server framework
-axum = { version = "0.7", features = ["macros"] }
-tokio = { version = "1.36", features = ["full"] }
+axum = { version = "0.7", features = ["macros", "ws"] }
+tokio = { version = "1.36", features = ["full", "macros"] }
+tokio-macros = "2.2"
+futures-util = "0.3"
 tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
+tokio-tungstenite = "0.21"
 
 # Database
 rusqlite = { version = "0.30", features = ["bundled"] }
