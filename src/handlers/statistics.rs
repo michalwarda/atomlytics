@@ -237,8 +237,8 @@ impl StatisticsAggregator {
         let periods = vec![
             ("today", today_start_ts, today_end_ts),
             ("yesterday", today_start_ts - 86400, today_start_ts),
-            ("last_7_days", today_start_ts - 7 * 86400, today_start_ts),
-            ("last_30_days", today_start_ts - 30 * 86400, today_start_ts),
+            ("last_7_days", today_start_ts - 7 * 86400, today_end_ts),
+            ("last_30_days", today_start_ts - 30 * 86400, today_end_ts),
         ];
 
         for (period_name, start_ts, end_ts) in periods {
@@ -382,8 +382,8 @@ impl StatisticsAggregator {
             TimeFrame::Realtime => (now.timestamp() - 30 * 60, now.timestamp(), Some("realtime")),
             TimeFrame::Today => (today_start_ts, today_end_ts, Some("today")),
             TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts, Some("yesterday")),
-            TimeFrame::Last7Days => (now.timestamp() - 7 * 86400, now.timestamp(), Some("last_7_days")),
-            TimeFrame::Last30Days => (now.timestamp() - 30 * 86400, now.timestamp(), Some("last_30_days")),
+            TimeFrame::Last7Days => (today_start_ts - 7 * 86400, today_end_ts, Some("last_7_days")),
+            TimeFrame::Last30Days => (today_start_ts - 30 * 86400, today_end_ts, Some("last_30_days")),
             TimeFrame::AllTime => (0, now.timestamp(), None),
         };
 
