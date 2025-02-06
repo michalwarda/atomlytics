@@ -204,13 +204,13 @@ impl BaseMetricsAggregator {
             TimeFrame::Today => (today_start_ts, today_end_ts, Some("today")),
             TimeFrame::Yesterday => (today_start_ts - 86400, today_start_ts, Some("yesterday")),
             TimeFrame::Last7Days => (
-                now.timestamp() - 7 * 86400,
-                now.timestamp(),
+                today_start_ts - 7 * 86400,
+                today_end_ts,
                 Some("last_7_days"),
             ),
             TimeFrame::Last30Days => (
-                now.timestamp() - 30 * 86400,
-                now.timestamp(),
+                today_start_ts - 30 * 86400,
+                today_end_ts,
                 Some("last_30_days"),
             ),
             TimeFrame::AllTime => (0, now.timestamp(), None),
