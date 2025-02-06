@@ -6,17 +6,15 @@ const DASHBOARD_HTML: &str = include_str!("../dashboard.html");
 const LIVE_RELOAD_SCRIPT: &str = r#"
     <script>
         // Live reload script for development
-        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            const ws = new WebSocket(`ws://${window.location.host}/live-reload`);
-            ws.onmessage = () => window.location.reload();
-            ws.onclose = () => {
-                console.log('Live reload connection closed. Attempting to reconnect...');
-                setInterval(() => {
-                    const newWs = new WebSocket(`ws://${window.location.host}/live-reload`);
-                    newWs.onopen = () => window.location.reload();
-                }, 1000);
-            };
-        }
+        const ws = new WebSocket(`ws://${window.location.host}/live-reload`);
+        ws.onmessage = () => window.location.reload();
+        ws.onclose = () => {
+            console.log('Live reload connection closed. Attempting to reconnect...');
+            setInterval(() => {
+                const newWs = new WebSocket(`ws://${window.location.host}/live-reload`);
+                newWs.onopen = () => window.location.reload();
+            }, 1000);
+        };
     </script>
 "#;
 

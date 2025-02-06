@@ -568,9 +568,9 @@ fn get_migrations() -> Vec<Migration> {
             conn.execute(
                 "UPDATE events 
                 SET page_url_path = CASE 
-                    WHEN page_url IS NULL THEN NULL
-                    WHEN page_url NOT LIKE 'http%' THEN NULL
-                    WHEN instr(page_url, '://') = 0 THEN NULL
+                    WHEN page_url IS NULL THEN '/'
+                    WHEN page_url NOT LIKE 'http%' THEN '/'
+                    WHEN instr(page_url, '://') = 0 THEN '/'
                     WHEN substr(page_url, instr(page_url, '://')+3) NOT LIKE '%/%' THEN '/'
                     ELSE (
                         CASE
@@ -623,9 +623,9 @@ fn get_migrations() -> Vec<Migration> {
             conn.execute(
                 "UPDATE events 
                 SET last_visited_url_path = CASE 
-                    WHEN last_visited_url IS NULL THEN NULL
-                    WHEN last_visited_url NOT LIKE 'http%' THEN NULL
-                    WHEN instr(last_visited_url, '://') = 0 THEN NULL
+                    WHEN last_visited_url IS NULL THEN '/'
+                    WHEN last_visited_url NOT LIKE 'http%' THEN '/'
+                    WHEN instr(last_visited_url, '://') = 0 THEN '/'
                     WHEN substr(last_visited_url, instr(last_visited_url, '://')+3) NOT LIKE '%/%' THEN '/'
                     ELSE (
                         CASE
