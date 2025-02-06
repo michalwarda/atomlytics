@@ -489,7 +489,6 @@ impl StatisticsAggregator {
                     )
                 })?;
 
-
                 // Convert to HashMap for easy lookup
                 let mut data_map: std::collections::HashMap<i64, i64> =
                     std::collections::HashMap::new();
@@ -515,7 +514,32 @@ impl StatisticsAggregator {
                     current_ts += interval;
                 }
 
-                Ok(complete_series)
+                // Optimize series by removing consecutive duplicates while keeping first and last occurrence
+                let mut optimized_series = Vec::new();
+                if !complete_series.is_empty() {
+                    let mut i = 0;
+                    while i < complete_series.len() {
+                        let current_value = complete_series[i].1;
+                        let mut j = i + 1;
+                        
+                        // Find the last occurrence of the current value in the consecutive sequence
+                        while j < complete_series.len() && complete_series[j].1 == current_value {
+                            j += 1;
+                        }
+                        
+                        // Add first occurrence
+                        optimized_series.push(complete_series[i]);
+                        
+                        // If there were duplicates and we're not at the end, add the last occurrence
+                        if j - 1 > i && j - 1 < complete_series.len() {
+                            optimized_series.push(complete_series[j - 1]);
+                        }
+                        
+                        i = j;
+                    }
+                }
+
+                Ok(optimized_series)
             })
             .await
     }
