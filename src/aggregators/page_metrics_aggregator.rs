@@ -22,15 +22,17 @@ impl PageMetricsAggregator {
         let gathered_fields = vec![
             (
                 "page_path".to_string(),
-                "COALESCE(page_url_path, '/') as page_path".to_string(),
+                "CASE WHEN event_type = 'visit' THEN page_url_path END as page_path".to_string(),
             ),
             (
                 "entry_page_path".to_string(),
-                "COALESCE(CASE WHEN event_type = 'visit' THEN page_url_path END, '/') as entry_page_path".to_string(),
+                "CASE WHEN event_type = 'visit' THEN page_url_path END as entry_page_path"
+                    .to_string(),
             ),
             (
                 "exit_page_path".to_string(),
-                "COALESCE(CASE WHEN event_type = 'visit' THEN last_visited_url_path END, '/') as exit_page_path".to_string(),
+                "CASE WHEN event_type = 'visit' THEN last_visited_url_path END as exit_page_path"
+                    .to_string(),
             ),
         ];
         let group_by_fields = vec![

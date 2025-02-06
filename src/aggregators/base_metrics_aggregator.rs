@@ -2,6 +2,7 @@ use chrono::{Timelike, Utc};
 use rusqlite::params;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
+use tracing::debug;
 
 use super::{Metric, TimeFrame};
 
@@ -41,18 +42,27 @@ impl BaseMetricsAggregator {
         thirty_minutes_ago_ts: i64,
     ) -> Result<(), tokio_rusqlite::Error> {
         let table_name = self.aggregation_table_name.clone();
-        self.db
+        let query = format!(
+            "DELETE FROM {} WHERE period_name = 'realtime' AND start_ts < ?",
+            table_name
+        );
+
+        let query_clone = query.clone();
+        let result = self
+            .db
             .call(move |conn| {
-                conn.execute(
-                    &format!(
-                        "DELETE FROM {} WHERE period_name = 'realtime' AND start_ts < ?",
-                        table_name
-                    ),
-                    params![thirty_minutes_ago_ts],
-                )?;
-                Ok(())
+                conn.execute(&query, params![thirty_minutes_ago_ts])
+                    .map_err(tokio_rusqlite::Error::from)
             })
-            .await
+            .await;
+
+        if let Err(ref e) = result {
+            debug!(
+                "Failed SQL: {}",
+                query_clone.replace("?", &thirty_minutes_ago_ts.to_string())
+            );
+        }
+        result.map(|_| ())
     }
 
     pub async fn aggregate_stats_for_period(
@@ -78,38 +88,55 @@ impl BaseMetricsAggregator {
             .collect::<Vec<_>>()
             .join(", ");
 
-        self.db.call(move |conn| {
-            let query = format!(
-                "INSERT OR REPLACE INTO {} (
-                    period_type, period_start, {}, 
-                    visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at
-                )
-                SELECT 
-                    ?1 as period_type,
-                    (timestamp / ?2) * ?2 as period_start,
-                    {},
-                    COUNT(DISTINCT visitor_id) as visitors,
-                    COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
-                    COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
-                    CAST(AVG(CASE 
-                        WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                        THEN last_activity_at - timestamp 
-                        ELSE NULL 
-                    END) AS INTEGER) as avg_visit_duration,
-                    CAST(
-                        CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                        CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
-                    AS FLOAT) as bounce_rate,
-                    strftime('%s', 'now') as created_at
-                FROM events
-                WHERE timestamp >= ?3
-                GROUP BY period_start, {}",
-                table_name, field_names, fields_str, group_by
-            );
+        let query = format!(
+            "INSERT OR REPLACE INTO {} (
+                period_type, period_start, {}, 
+                visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at
+            )
+            SELECT 
+                ?1 as period_type,
+                (timestamp / ?2) * ?2 as period_start,
+                {},
+                COUNT(DISTINCT visitor_id) as visitors,
+                COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
+                COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                CAST(AVG(CASE 
+                    WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                    THEN last_activity_at - timestamp 
+                    ELSE NULL 
+                END) AS INTEGER) as avg_visit_duration,
+                CAST(
+                    CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
+                    CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
+                AS FLOAT) as bounce_rate,
+                strftime('%s', 'now') as created_at
+            FROM events
+            WHERE timestamp >= ?3 AND event_type = 'visit' AND page_url_path IS NOT NULL
+            GROUP BY period_start, {}",
+            table_name, field_names, fields_str, group_by
+        );
 
-            conn.execute(&query, params![period_type, time_division, start_timestamp])?;
-            Ok(())
-        }).await
+        let query_clone = query.clone();
+        let period_type_clone = period_type.clone();
+
+        let result = self
+            .db
+            .call(move |conn| {
+                conn.execute(&query, params![period_type, time_division, start_timestamp])
+                    .map_err(tokio_rusqlite::Error::from)
+            })
+            .await;
+
+        if let Err(ref e) = result {
+            debug!(
+                "Failed SQL: {}",
+                query_clone
+                    .replace("?1", &format!("'{}'", period_type_clone))
+                    .replace("?2", &time_division.to_string())
+                    .replace("?3", &start_timestamp.to_string())
+            );
+        }
+        result.map(|_| ())
     }
 
     pub async fn aggregate_metrics_for_period(
@@ -135,40 +162,59 @@ impl BaseMetricsAggregator {
             .collect::<Vec<_>>()
             .join(", ");
 
-        self.db.call(move |conn| {
-            let query = format!(
-                "INSERT OR REPLACE INTO {} 
-                (period_name, start_ts, end_ts, {}, visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at)
-                SELECT 
-                    ?,
-                    ?,
-                    ?,
-                    {},
-                    COUNT(DISTINCT visitor_id),
-                    COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                    COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                    CAST(AVG(CASE 
-                        WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                        THEN last_activity_at - timestamp 
-                        ELSE NULL 
-                    END) AS INTEGER) as avg_visit_duration,
-                    CAST(
-                        CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                        CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
-                    AS FLOAT) as bounce_rate,
-                    strftime('%s', 'now') as created_at
-                FROM events 
-                WHERE timestamp >= ? AND timestamp <= ?
-                GROUP BY {}",
-                table_name, field_names, fields_str, group_by
-            );
+        let query = format!(
+            "INSERT OR REPLACE INTO {} 
+            (period_name, start_ts, end_ts, {}, visitors, visits, pageviews, avg_visit_duration, bounce_rate, created_at)
+            SELECT 
+                ?,
+                ?,
+                ?,
+                {},
+                COUNT(DISTINCT visitor_id),
+                COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
+                COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                CAST(AVG(CASE 
+                    WHEN event_type = 'visit' AND last_activity_at > timestamp 
+                    THEN last_activity_at - timestamp 
+                    ELSE NULL 
+                END) AS INTEGER) as avg_visit_duration,
+                CAST(
+                    CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
+                    CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
+                AS FLOAT) as bounce_rate,
+                strftime('%s', 'now') as created_at
+            FROM events 
+            WHERE timestamp >= ? AND timestamp <= ? AND event_type = 'visit' AND page_url_path IS NOT NULL
+            GROUP BY {}",
+            table_name, field_names, fields_str, group_by
+        );
 
-            conn.execute(
-                &query,
-                params![period_name, start_ts, end_ts, start_ts, end_ts],
-            )?;
-            Ok(())
-        }).await
+        let query_clone = query.clone();
+        let period_name_clone = period_name.clone();
+
+        let result = self
+            .db
+            .call(move |conn| {
+                conn.execute(
+                    &query,
+                    params![period_name, start_ts, end_ts, start_ts, end_ts],
+                )
+                .map_err(tokio_rusqlite::Error::from)
+            })
+            .await;
+
+        if let Err(ref e) = result {
+            debug!(
+                "Failed SQL: {}",
+                query_clone
+                    .replace("?", &format!("'{}'", period_name_clone))
+                    .replacen("?", &start_ts.to_string(), 1)
+                    .replacen("?", &end_ts.to_string(), 1)
+                    .replacen("?", &start_ts.to_string(), 1)
+                    .replacen("?", &end_ts.to_string(), 1)
+            );
+        }
+        result.map(|_| ())
     }
 
     pub async fn get_metrics<T: MetricsOutput + 'static>(
@@ -226,37 +272,50 @@ impl BaseMetricsAggregator {
             .collect::<Vec<_>>()
             .join(", ");
 
-        self.db
-            .call(move |conn| {
-                let query = format!(
-                    "SELECT 
-                        {},
-                        SUM(visitors) as visitors,
-                        SUM(visits) as visits,
-                        SUM(pageviews) as pageviews,
-                        CAST(AVG(avg_visit_duration) AS INTEGER) as avg_visit_duration,
-                        CAST(AVG(bounce_rate) AS INTEGER) as bounce_rate
-                     FROM {}
-                     WHERE period_name = ?
-                     AND start_ts >= ?
-                     AND end_ts <= ?
-                     GROUP BY {}
-                     ORDER BY {} {}",
-                    field_names, table_name, group_by_field, metric_str, order_direction
-                );
+        let query = format!(
+            "SELECT 
+                {},
+                SUM(visitors) as visitors,
+                SUM(visits) as visits,
+                SUM(pageviews) as pageviews,
+                CAST(AVG(avg_visit_duration) AS INTEGER) as avg_visit_duration,
+                CAST(AVG(bounce_rate) AS INTEGER) as bounce_rate
+             FROM {}
+             WHERE period_name = ?
+             AND start_ts >= ?
+             AND end_ts <= ?
+             GROUP BY {}
+             ORDER BY {} {}",
+            field_names, table_name, group_by_field, metric_str, order_direction
+        );
+        let query_clone = query.clone();
 
+        let result = self
+            .db
+            .call(move |conn| {
                 let mut stmt = conn.prepare(&query)?;
 
-                let metrics = stmt
+                let result = stmt
                     .query_map(
                         params![period_name.unwrap_or(""), start_ts, end_ts],
                         |row| T::from_row(row),
                     )?
                     .filter_map(|r| r.transpose())
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                Ok(metrics)
+                    .collect::<Result<Vec<_>, rusqlite::Error>>()
+                    .map_err(tokio_rusqlite::Error::from)?;
+                Ok(result)
             })
-            .await
+            .await;
+
+        if let Err(ref _e) = result {
+            debug!(
+                "Failed SQL: {}",
+                query_clone
+                    .replace("?", &format!("'{}'", period_name.unwrap_or("")))
+                    .replacen("?", &start_ts.to_string(), 1)
+                    .replacen("?", &end_ts.to_string(), 1)
+            );
+        }
+        result
     }
 }
