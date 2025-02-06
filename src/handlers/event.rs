@@ -351,7 +351,7 @@ impl EventHandler {
                 last_activity_at: event.timestamp,
                 last_visited_url: Some(event.page_url.clone()),
                 page_url_path: event.page_url_path.clone(),
-                last_visited_url_path: event.last_visited_url_path.clone(),
+                last_visited_url_path: event.page_url_path.clone(),
             };
 
             self.save_event(&visit_event, None).await?;
