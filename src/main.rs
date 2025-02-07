@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+mod dev_tools;
 mod aggregators;
 mod handlers;
 mod middleware;
@@ -277,6 +279,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+
+    #[cfg(debug_assertions)]
+    {
+        // Start synthetic event generator in development mode
+        let app_state_clone = app_state.clone();
+        tokio::spawn(async move {
+            let generator = dev_tools::EventGenerator::new(
+                app_state_clone,
+                "http://localhost:3000".to_string(),
+            );
+            generator.start_generation().await;
+        });
+    }
 
     // Create router with routes
     let app = Router::new()

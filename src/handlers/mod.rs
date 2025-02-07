@@ -12,4 +12,3 @@ pub use health::*;
 pub use live_reload::*;
 pub use script::*;
 pub use statistics::*;
-pub use visits::*;

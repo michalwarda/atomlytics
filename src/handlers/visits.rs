@@ -1,9 +1,7 @@
 use crate::AppState;
-use axum::http::StatusCode;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, instrument, warn};
+use tracing::instrument;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Visit {
@@ -38,13 +36,6 @@ pub struct VisitHandler {
 impl VisitHandler {
     pub fn new(state: AppState) -> Self {
         Self { state }
-    }
-
-    fn get_current_timestamp(&self) -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64
     }
 
     #[instrument(skip(self))]
