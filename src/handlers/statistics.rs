@@ -156,7 +156,7 @@ impl StatisticsAggregator {
 
         self.db
             .call(move |conn| {
-                conn.execute("UPDATE events SET is_active = 0 WHERE event_type = 'visit' AND last_activity_at < ?", [active_threshold.timestamp()])?;
+                conn.execute("UPDATE visits SET is_active = 0 WHERE is_active = 1 AND last_activity_at < ?", [active_threshold.timestamp()])?;
                 Ok(())
             })
             .await
@@ -184,22 +184,23 @@ impl StatisticsAggregator {
                     )
                     SELECT 
                         ?1 as period_type,
-                        (timestamp / ?2) * ?2 as period_start,
-                        COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
+                        (e.timestamp / ?2) * ?2 as period_start,
+                        COUNT(DISTINCT e.visitor_id) as unique_visitors,
+                        COUNT(DISTINCT v.id) as total_visits,
+                        COUNT(DISTINCT CASE WHEN e.event_type = 'pageview' THEN e.id ELSE NULL END) as total_pageviews,
                         CAST(AVG(CASE 
-                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                            THEN last_activity_at - timestamp 
+                            WHEN v.id IS NOT NULL AND v.last_activity_at > v.timestamp 
+                            THEN v.last_activity_at - v.timestamp 
                             ELSE NULL 
                         END) AS INTEGER) as avg_visit_duration,
                         CAST(
-                            CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                            CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
+                            CAST(COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.timestamp = v.last_activity_at THEN v.id ELSE NULL END) AS FLOAT) /
+                            CAST(NULLIF(COUNT(DISTINCT v.id), 0) AS FLOAT) * 100.0
                         AS FLOAT) as bounce_rate,
                         strftime('%s', 'now') as created_at
-                    FROM events 
-                    WHERE timestamp >= ?3
+                    FROM events e
+                    LEFT JOIN visits v ON e.visit_id = v.id
+                    WHERE e.timestamp >= ?3
                     GROUP BY period_start",
                     params![period_type.to_string(), time_division, start_timestamp],
                 )?;
@@ -269,7 +270,6 @@ impl StatisticsAggregator {
 
         self.db
             .call(move |conn| {
-                // Base metrics query
                 let metrics_query = if include_current_visits == Some(true) {
                     "INSERT OR REPLACE INTO aggregated_metrics 
                     (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, current_visits, bounce_rate, created_at)
@@ -277,17 +277,18 @@ impl StatisticsAggregator {
                         ?,
                         ?,
                         ?,
-                        COUNT(DISTINCT visitor_id),
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' AND is_active = 1 THEN id ELSE NULL END),
+                        COUNT(DISTINCT e.visitor_id),
+                        COUNT(DISTINCT v.id),
+                        COUNT(DISTINCT CASE WHEN e.event_type = 'pageview' THEN e.id ELSE NULL END),
+                        COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.is_active = 1 THEN v.id ELSE NULL END),
                         CAST(
-                            CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                            CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
+                            CAST(COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.timestamp = v.last_activity_at THEN v.id ELSE NULL END) AS FLOAT) /
+                            CAST(NULLIF(COUNT(DISTINCT v.id), 0) AS FLOAT) * 100.0
                         AS FLOAT) as bounce_rate,
                         strftime('%s', 'now')
-                    FROM events 
-                    WHERE timestamp >= ? AND timestamp <= ?"
+                    FROM events e
+                    LEFT JOIN visits v ON e.visit_id = v.id
+                    WHERE e.timestamp >= ? AND e.timestamp <= ?"
                 } else {
                     "INSERT OR REPLACE INTO aggregated_metrics 
                     (period_name, start_ts, end_ts, unique_visitors, total_visits, total_pageviews, avg_visit_duration, bounce_rate, created_at)
@@ -295,21 +296,22 @@ impl StatisticsAggregator {
                         ?,
                         ?,
                         ?,
-                        COUNT(DISTINCT visitor_id),
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                        COUNT(DISTINCT e.visitor_id),
+                        COUNT(DISTINCT v.id),
+                        COUNT(DISTINCT CASE WHEN e.event_type = 'pageview' THEN e.id ELSE NULL END),
                         CAST(AVG(CASE 
-                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                            THEN last_activity_at - timestamp 
+                            WHEN v.id IS NOT NULL AND v.last_activity_at > v.timestamp 
+                            THEN v.last_activity_at - v.timestamp 
                             ELSE NULL 
                         END) AS INTEGER) as avg_visit_duration,
                         CAST(
-                            CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                            CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
+                            CAST(COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.timestamp = v.last_activity_at THEN v.id ELSE NULL END) AS FLOAT) /
+                            CAST(NULLIF(COUNT(DISTINCT v.id), 0) AS FLOAT) * 100.0
                         AS FLOAT) as bounce_rate,
                         strftime('%s', 'now')
-                    FROM events 
-                    WHERE timestamp >= ? AND timestamp <= ?"
+                    FROM events e
+                    LEFT JOIN visits v ON e.visit_id = v.id
+                    WHERE e.timestamp >= ? AND e.timestamp <= ?"
                 };
 
                 conn.execute(
@@ -327,20 +329,21 @@ impl StatisticsAggregator {
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT 
-                        COUNT(DISTINCT visitor_id) as unique_visitors,
-                        COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as total_visits,
-                        COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as total_pageviews,
+                        COUNT(DISTINCT e.visitor_id) as unique_visitors,
+                        COUNT(DISTINCT v.id) as total_visits,
+                        COUNT(DISTINCT CASE WHEN e.event_type = 'pageview' THEN e.id ELSE NULL END) as total_pageviews,
                         CAST(AVG(CASE 
-                            WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                            THEN last_activity_at - timestamp 
+                            WHEN v.id IS NOT NULL AND v.last_activity_at > v.timestamp 
+                            THEN v.last_activity_at - v.timestamp 
                             ELSE NULL 
                         END) AS INTEGER) as avg_visit_duration,
                         CAST(
-                            CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                            CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
+                            CAST(COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.timestamp = v.last_activity_at THEN v.id ELSE NULL END) AS FLOAT) /
+                            CAST(NULLIF(COUNT(DISTINCT v.id), 0) AS FLOAT) * 100.0
                         AS FLOAT) as bounce_rate
-                     FROM events 
-                     WHERE timestamp >= ? AND timestamp <= ?"
+                     FROM events e
+                     LEFT JOIN visits v ON e.visit_id = v.id
+                     WHERE e.timestamp >= ? AND e.timestamp <= ?"
                 )?;
                 
                 let row = stmt.query_row([start_ts, end_ts], |row| {

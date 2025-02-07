@@ -22,21 +22,22 @@ impl DeviceMetricsAggregator {
         let gathered_fields = vec![
             (
                 "browser".to_string(),
-                "COALESCE(browser, 'Unknown') as browser".to_string(),
+                "COALESCE(v.browser, 'Unknown') as normalized_browser".to_string(),
             ),
             (
                 "operating_system".to_string(),
-                "COALESCE(operating_system, 'Unknown') as operating_system".to_string(),
+                "COALESCE(v.operating_system, 'Unknown') as normalized_operating_system"
+                    .to_string(),
             ),
             (
                 "device_type".to_string(),
-                "COALESCE(device_type, 'Unknown') as device_type".to_string(),
+                "COALESCE(v.device_type, 'Unknown') as normalized_device_type".to_string(),
             ),
         ];
         let group_by_fields = vec![
-            "browser".to_string(),
-            "operating_system".to_string(),
-            "device_type".to_string(),
+            "normalized_browser".to_string(),
+            "normalized_operating_system".to_string(),
+            "normalized_device_type".to_string(),
         ];
 
         Self {

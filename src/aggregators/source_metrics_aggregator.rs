@@ -22,31 +22,31 @@ impl SourceMetricsAggregator {
         let gathered_fields = vec![
             (
                 "source".to_string(),
-                "COALESCE(source, 'Direct') as source".to_string(),
+                "COALESCE(v.source, 'Direct') as normalized_source".to_string(),
             ),
             (
                 "referrer".to_string(),
-                "COALESCE(referrer, 'Unknown') as referrer".to_string(),
+                "COALESCE(v.referrer, 'Unknown') as normalized_referrer".to_string(),
             ),
             (
                 "utm_source".to_string(),
-                "COALESCE(utm_source, 'Unknown') as utm_source".to_string(),
+                "COALESCE(v.utm_source, 'Unknown') as normalized_utm_source".to_string(),
             ),
             (
                 "utm_medium".to_string(),
-                "COALESCE(utm_medium, 'Unknown') as utm_medium".to_string(),
+                "COALESCE(v.utm_medium, 'Unknown') as normalized_utm_medium".to_string(),
             ),
             (
                 "utm_campaign".to_string(),
-                "COALESCE(utm_campaign, 'Unknown') as utm_campaign".to_string(),
+                "COALESCE(v.utm_campaign, 'Unknown') as normalized_utm_campaign".to_string(),
             ),
         ];
         let group_by_fields = vec![
-            "source".to_string(),
-            "referrer".to_string(),
-            "utm_source".to_string(),
-            "utm_medium".to_string(),
-            "utm_campaign".to_string(),
+            "normalized_source".to_string(),
+            "normalized_referrer".to_string(),
+            "normalized_utm_source".to_string(),
+            "normalized_utm_medium".to_string(),
+            "normalized_utm_campaign".to_string(),
         ];
 
         Self {

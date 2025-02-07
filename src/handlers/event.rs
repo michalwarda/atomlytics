@@ -52,15 +52,9 @@ pub struct Event {
     #[serde(skip_deserializing)]
     pub visitor_id: Option<String>,
     #[serde(skip_deserializing)]
-    pub is_active: i64,
-    #[serde(skip_deserializing)]
-    pub last_activity_at: i64,
-    #[serde(skip_deserializing)]
-    pub last_visited_url: Option<String>,
+    pub visit_id: Option<i64>,
     #[serde(skip_deserializing)]
     pub page_url_path: Option<String>,
-    #[serde(skip_deserializing)]
-    pub last_visited_url_path: Option<String>,
 }
 
 pub struct EventHandler {
@@ -211,11 +205,9 @@ impl EventHandler {
         let utm_term = event.utm_term.clone();
         let timestamp = event.timestamp;
         let visitor_id = event.visitor_id.clone();
-        let is_active = event.is_active;
-        let last_activity_at = event.last_activity_at;
-        let last_visited_url = event.last_visited_url.clone();
+        let visit_id = event.visit_id;
         let page_url_path = event.page_url_path.clone();
-        let last_visited_url_path = event.last_visited_url_path.clone();
+
         debug!(
             event_type = %event_type,
             page_url = %page_url,
@@ -231,11 +223,9 @@ impl EventHandler {
                         event_type, page_url, referrer, source, browser, operating_system, 
                         device_type, country, region, city,
                         utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                        timestamp, visitor_id, custom_params, is_active, last_activity_at, last_visited_url,
-                        page_url_path, last_visited_url_path
+                        timestamp, visitor_id, custom_params, visit_id, page_url_path
                     ) VALUES (
-                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-                        ?22, ?23
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
                     )",
                     params![
                         &event_type,
@@ -256,11 +246,8 @@ impl EventHandler {
                         timestamp,
                         &visitor_id,
                         &custom_params,
-                        &is_active,
-                        &last_activity_at,
-                        &last_visited_url,
+                        &visit_id,
                         &page_url_path,
-                        &last_visited_url_path,
                     ],
                 )
                 .map(|_| {
@@ -282,80 +269,57 @@ impl EventHandler {
     async fn check_and_create_visit(
         &self,
         visitor_id: &str,
-        event: &Event,
+        event: &mut Event,
     ) -> Result<(), tokio_rusqlite::Error> {
-        let visitor_id_clone: String = visitor_id.to_string();
-        let visitor_id_for_query = visitor_id_clone.clone();
-        let timestamp = event.timestamp;
-        let page_url = event.page_url.clone();
-        let result = self
-            .state
-            .db
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, timestamp FROM events 
-                     WHERE visitor_id = ?1 AND event_type = 'visit'
-                     ORDER BY timestamp DESC LIMIT 1",
-                )?;
+        use crate::handlers::visits::{Visit, VisitHandler};
 
-                let result = stmt.query_row(params![visitor_id_for_query], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-                });
+        let visit_handler = VisitHandler::new(self.state.clone());
+        let current_timestamp = self.get_current_timestamp();
 
-                match result {
-                    Ok((visit_id, last_ts)) => {
-                        if timestamp - last_ts <= 1800 {
-                            println!("Visit exists and is active, updating last_activity_at");
-                            // Visit exists and is active, update last_activity_at and last_visited_url
-                            conn.execute(
-                                "UPDATE events SET last_activity_at = ?1, last_visited_url = ?2 WHERE id = ?3",
-                                params![timestamp, page_url, visit_id],
-                            )?;
-                            Ok(false)
-                        } else {
-                            println!("Visit exists but expired");
-                            // Visit exists but expired
-                            Ok(true)
-                        }
-                    }
-                    Err(_) => {
-                        // No visit found
-                        println!("No visit found");
-                        Ok(true)
-                    }
-                }
-            })
-            .await?;
-
-        if result {
-            let visit_event = Event {
-                event_type: "visit".to_string(),
+        // First, try to get an active visit
+        if let Some(active_visit) = visit_handler
+            .get_active_visit(visitor_id, current_timestamp)
+            .await?
+        {
+            // Update the visit's activity
+            visit_handler
+                .update_visit_activity(
+                    active_visit.id.unwrap(),
+                    current_timestamp,
+                    &event.page_url,
+                    event.page_url_path.clone(),
+                )
+                .await?;
+            event.visit_id = active_visit.id;
+        } else {
+            // Create a new visit
+            let visit = Visit {
+                id: None,
+                visitor_id: visitor_id.to_string(),
                 page_url: event.page_url.clone(),
+                page_url_path: event.page_url_path.clone(),
                 referrer: event.referrer.clone(),
+                source: event.source.clone(),
                 browser: event.browser.clone(),
                 operating_system: event.operating_system.clone(),
                 device_type: event.device_type.clone(),
                 country: event.country.clone(),
                 region: event.region.clone(),
                 city: event.city.clone(),
-                source: event.source.clone(),
                 utm_source: event.utm_source.clone(),
                 utm_medium: event.utm_medium.clone(),
                 utm_campaign: event.utm_campaign.clone(),
                 utm_content: event.utm_content.clone(),
                 utm_term: event.utm_term.clone(),
-                timestamp: event.timestamp,
-                visitor_id: Some(visitor_id_clone.to_string()),
-                custom_params: event.custom_params.clone(),
+                timestamp: current_timestamp,
                 is_active: 1,
-                last_activity_at: event.timestamp,
+                last_activity_at: current_timestamp,
                 last_visited_url: Some(event.page_url.clone()),
-                page_url_path: event.page_url_path.clone(),
                 last_visited_url_path: event.page_url_path.clone(),
             };
 
-            self.save_event(&visit_event, None).await?;
-            debug!(visitor_id = %visitor_id_clone, "Created new visit event");
+            let visit_id = visit_handler.create_visit(&visit).await?;
+            event.visit_id = Some(visit_id);
         }
 
         Ok(())
@@ -401,8 +365,8 @@ impl EventHandler {
         event.timestamp = self.get_current_timestamp();
 
         // Check and create visit event if needed
-        if let Err(e) = self.check_and_create_visit(&visitor_id, &event).await {
-            warn!(error = %e, "Failed to check and create visit event");
+        if let Err(e) = self.check_and_create_visit(&visitor_id, &mut event).await {
+            warn!(error = %e, "Failed to check and create visit");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
 

@@ -21,21 +21,21 @@ impl LocationMetricsAggregator {
         let gathered_fields = vec![
             (
                 "country".to_string(),
-                "COALESCE(country, 'Unknown') as country".to_string(),
+                "COALESCE(v.country, 'Unknown') as normalized_country".to_string(),
             ),
             (
                 "region".to_string(),
-                "COALESCE(region, 'Unknown') as region".to_string(),
+                "COALESCE(v.region, 'Unknown') as normalized_region".to_string(),
             ),
             (
                 "city".to_string(),
-                "COALESCE(city, 'Unknown') as city".to_string(),
+                "COALESCE(v.city, 'Unknown') as normalized_city".to_string(),
             ),
         ];
         let group_by_fields = vec![
-            "country".to_string(),
-            "region".to_string(),
-            "city".to_string(),
+            "normalized_country".to_string(),
+            "normalized_region".to_string(),
+            "normalized_city".to_string(),
         ];
 
         Self {

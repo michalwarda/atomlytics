@@ -706,54 +706,6 @@ fn get_migrations() -> Vec<Migration> {
                 )",
                 [],
             )?;
-
-            // Create page aggregated metrics table
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS page_aggregated_metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    period_name TEXT NOT NULL,
-                    start_ts INTEGER NOT NULL,
-                    end_ts INTEGER NOT NULL,
-                    page_path TEXT NOT NULL,
-                    entry_page_path TEXT NOT NULL,
-                    exit_page_path TEXT NOT NULL,
-                    visitors INTEGER NOT NULL,
-                    visits INTEGER NOT NULL,
-                    pageviews INTEGER NOT NULL,
-                    avg_visit_duration INTEGER,
-                    bounce_rate INTEGER,
-                    created_at INTEGER NOT NULL,
-                    UNIQUE(period_name, start_ts, end_ts, page_path, entry_page_path, exit_page_path)
-                )",
-                [],
-            )?;
-
-            // Add indices for better query performance
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_page_statistics_period 
-                 ON page_statistics(period_type, period_start)",
-                [],
-            )?;
-
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_page_aggregated_metrics_period 
-                 ON page_aggregated_metrics(period_name, start_ts, end_ts)",
-                [],
-            )?;
-
-            // Add indices for the path columns since they'll be used in grouping
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_page_statistics_paths 
-                 ON page_statistics(page_path, entry_page_path, exit_page_path)",
-                [],
-            )?;
-
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_page_aggregated_metrics_paths 
-                 ON page_aggregated_metrics(page_path, entry_page_path, exit_page_path)",
-                [],
-            )?;
-
             Ok(())
         }),
         Migration::new("Fix page metrics tables UNIQUE constraints", 19, |conn| {
@@ -875,6 +827,103 @@ fn get_migrations() -> Vec<Migration> {
                 ON page_aggregated_metrics(page_path, entry_page_path, exit_page_path)",
                 [],
             )?;
+
+            Ok(())
+        }),
+        Migration::new("Separate visits from events", 20, |conn| {
+            // Create visits table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS visits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    visitor_id TEXT NOT NULL,
+                    page_url TEXT NOT NULL,
+                    page_url_path TEXT,
+                    referrer TEXT,
+                    source TEXT DEFAULT 'Direct',
+                    browser TEXT NOT NULL,
+                    operating_system TEXT NOT NULL,
+                    device_type TEXT NOT NULL,
+                    country TEXT DEFAULT 'Unknown',
+                    region TEXT DEFAULT 'Unknown',
+                    city TEXT DEFAULT 'Unknown',
+                    utm_source TEXT,
+                    utm_medium TEXT,
+                    utm_campaign TEXT,
+                    utm_content TEXT,
+                    utm_term TEXT,
+                    timestamp INTEGER NOT NULL,
+                    is_active INTEGER DEFAULT 0,
+                    last_activity_at INTEGER NOT NULL,
+                    last_visited_url TEXT,
+                    last_visited_url_path TEXT,
+                    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                )",
+                [],
+            )?;
+
+            // Add indices for visits table
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_visits_visitor_id ON visits(visitor_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_visits_timestamp ON visits(timestamp)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_visits_is_active ON visits(is_active)",
+                [],
+            )?;
+
+            // Add visit_id to events table
+            conn.execute(
+                "ALTER TABLE events ADD COLUMN visit_id INTEGER REFERENCES visits(id)",
+                [],
+            )?;
+
+            // Create index for visit_id in events
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_visit_id ON events(visit_id)",
+                [],
+            )?;
+
+            // Migrate existing visit events to visits table
+            conn.execute(
+                "INSERT INTO visits (
+                    visitor_id, page_url, page_url_path, referrer, source,
+                    browser, operating_system, device_type, country, region,
+                    city, utm_source, utm_medium, utm_campaign, utm_content,
+                    utm_term, timestamp, is_active, last_activity_at,
+                    last_visited_url, last_visited_url_path
+                )
+                SELECT 
+                    visitor_id, page_url, page_url_path, referrer, source,
+                    browser, operating_system, device_type, country, region,
+                    city, utm_source, utm_medium, utm_campaign, utm_content,
+                    utm_term, timestamp, is_active, last_activity_at,
+                    last_visited_url, last_visited_url_path
+                FROM events
+                WHERE event_type = 'visit'",
+                [],
+            )?;
+
+            // Update events with visit_id
+            conn.execute(
+                "UPDATE events
+                SET visit_id = (
+                    SELECT v.id
+                    FROM visits v
+                    WHERE v.visitor_id = events.visitor_id
+                    AND v.timestamp <= events.timestamp
+                    AND events.timestamp <= v.last_activity_at
+                    ORDER BY v.timestamp DESC
+                    LIMIT 1
+                )",
+                [],
+            )?;
+
+            // Delete old visit events
+            conn.execute("DELETE FROM events WHERE event_type = 'visit'", [])?;
 
             Ok(())
         }),

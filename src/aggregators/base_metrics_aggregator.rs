@@ -98,23 +98,24 @@ impl BaseMetricsAggregator {
             )
             SELECT 
                 ?1 as period_type,
-                (timestamp / ?2) * ?2 as period_start,
+                (e.timestamp / ?2) * ?2 as period_start,
                 {},
-                COUNT(DISTINCT visitor_id) as visitors,
-                COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END) as visits,
-                COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END) as pageviews,
+                COUNT(DISTINCT e.visitor_id) as visitors,
+                COUNT(DISTINCT v.id) as visits,
+                COUNT(DISTINCT CASE WHEN e.event_type = 'pageview' THEN e.id ELSE NULL END) as pageviews,
                 CAST(AVG(CASE 
-                    WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                    THEN last_activity_at - timestamp 
+                    WHEN v.id IS NOT NULL AND v.last_activity_at > v.timestamp 
+                    THEN v.last_activity_at - v.timestamp 
                     ELSE NULL 
                 END) AS INTEGER) as avg_visit_duration,
                 CAST(
-                    CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                    CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
+                    CAST(COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.timestamp = v.last_activity_at THEN v.id ELSE NULL END) AS FLOAT) /
+                    CAST(NULLIF(COUNT(DISTINCT v.id), 0) AS FLOAT) * 100.0
                 AS FLOAT) as bounce_rate,
                 strftime('%s', 'now') as created_at
-            FROM events
-            WHERE timestamp >= ?3
+            FROM events e
+            LEFT JOIN visits v ON e.visit_id = v.id
+            WHERE e.timestamp >= ?3
             GROUP BY period_start, {}",
             table_name, field_names, fields_str, group_by
         );
@@ -122,25 +123,16 @@ impl BaseMetricsAggregator {
         let query_clone = query.clone();
         let period_type_clone = period_type.clone();
 
-        let result = self
-            .db
+        self.db
             .call(move |conn| {
-                conn.execute(&query, params![period_type, time_division, start_timestamp])
-                    .map_err(tokio_rusqlite::Error::from)
+                conn.execute(
+                    &query_clone,
+                    params![period_type_clone, time_division, start_timestamp],
+                )
+                .map(|_| ())
+                .map_err(Into::into)
             })
-            .await;
-
-        let query_string = query_clone
-            .replace("?1", &format!("'{}'", period_type_clone))
-            .replace("?2", &time_division.to_string())
-            .replace("?3", &start_timestamp.to_string());
-
-        debug!("Aggregating stats for period: {}", query_string);
-
-        if let Err(ref _e) = result {
-            error!("Failed SQL: {}", query_string);
-        }
-        result.map(|_| ())
+            .await
     }
 
     pub async fn aggregate_metrics_for_period(
@@ -174,21 +166,22 @@ impl BaseMetricsAggregator {
                 ?,
                 ?,
                 {},
-                COUNT(DISTINCT visitor_id),
-                COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END),
-                COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN id ELSE NULL END),
+                COUNT(DISTINCT e.visitor_id),
+                COUNT(DISTINCT v.id),
+                COUNT(DISTINCT CASE WHEN e.event_type = 'pageview' THEN e.id ELSE NULL END),
                 CAST(AVG(CASE 
-                    WHEN event_type = 'visit' AND last_activity_at > timestamp 
-                    THEN last_activity_at - timestamp 
+                    WHEN v.id IS NOT NULL AND v.last_activity_at > v.timestamp 
+                    THEN v.last_activity_at - v.timestamp 
                     ELSE NULL 
                 END) AS INTEGER) as avg_visit_duration,
                 CAST(
-                    CAST(COUNT(DISTINCT CASE WHEN event_type = 'visit' AND timestamp = last_activity_at THEN id ELSE NULL END) AS FLOAT) /
-                    CAST(NULLIF(COUNT(DISTINCT CASE WHEN event_type = 'visit' THEN id ELSE NULL END), 0) AS FLOAT) * 100.0
+                    CAST(COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.timestamp = v.last_activity_at THEN v.id ELSE NULL END) AS FLOAT) /
+                    CAST(NULLIF(COUNT(DISTINCT v.id), 0) AS FLOAT) * 100.0
                 AS FLOAT) as bounce_rate,
                 strftime('%s', 'now') as created_at
-            FROM events 
-            WHERE timestamp >= ? AND timestamp <= ?
+            FROM events e
+            LEFT JOIN visits v ON e.visit_id = v.id
+            WHERE e.timestamp >= ? AND e.timestamp <= ?
             GROUP BY {}",
             table_name, field_names, fields_str, group_by
         );
@@ -203,7 +196,8 @@ impl BaseMetricsAggregator {
                     &query,
                     params![period_name, start_ts, end_ts, start_ts, end_ts],
                 )
-                .map_err(tokio_rusqlite::Error::from)
+                .map(|_| ())
+                .map_err(Into::into)
             })
             .await;
 
