@@ -81,8 +81,6 @@ impl MetricsOutput for PageMetrics {
         let entry_page_path: String = row.get(1).unwrap_or("".to_string());
         let exit_page_path: String = row.get(2).unwrap_or("".to_string());
 
-        println!("page_views: {} {}", pageviews, page_path);
-
         if visitors > 0 && page_path.len() > 0 {
             Ok(Some(PageMetrics {
                 page_path,
