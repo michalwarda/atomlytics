@@ -1,19 +1,25 @@
 use axum::{
-    extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
-    },
+    extract::{ws::WebSocketUpgrade, State},
     response::Response,
 };
+
+#[cfg(debug_assertions)]
+use axum::extract::ws::{Message, WebSocket};
+#[cfg(debug_assertions)]
 use futures_util::{SinkExt, StreamExt};
+#[cfg(debug_assertions)]
 use std::sync::Arc;
+#[cfg(debug_assertions)]
 use tokio::sync::broadcast::{self, Sender};
+#[cfg(debug_assertions)]
 use tracing::info;
 
+#[cfg(debug_assertions)]
 pub struct LiveReload {
     reload_notifier: Sender<()>,
 }
 
+#[cfg(debug_assertions)]
 impl LiveReload {
     pub fn new() -> Self {
         let (reload_notifier, _) = broadcast::channel(1);
@@ -42,6 +48,7 @@ pub async fn ws_handler(_: WebSocketUpgrade, _: State<crate::AppState>) -> Respo
         .unwrap()
 }
 
+#[cfg(debug_assertions)]
 async fn handle_socket(socket: WebSocket, live_reload: Arc<LiveReload>) {
     let mut rx = live_reload.reload_notifier.subscribe();
 
