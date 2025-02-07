@@ -1,6 +1,6 @@
+mod aggregators;
 #[cfg(debug_assertions)]
 mod dev_tools;
-mod aggregators;
 mod handlers;
 mod middleware;
 mod migrations;
@@ -305,6 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Router::new()
                 .route("/dashboard", get(serve_dashboard))
                 .route("/api/statistics", get(get_statistics))
+                .route("/api/filtered-statistics", get(get_filtered_statistics))
                 .layer(axum::middleware::from_fn(middleware::basic_auth)),
         )
         .layer(

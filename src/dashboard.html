@@ -850,7 +850,7 @@
         async function fetchData() {
             const {timeframe, granularity, metric, locationGrouping, deviceGrouping, sourceGrouping, pageGrouping} = getQueryParams();
             
-            const response = await fetch(`/api/statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}&device_grouping=${deviceGrouping}&source_grouping=${sourceGrouping}&page_grouping=${pageGrouping}`);
+            const response = await fetch(`/api/filtered-statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}&device_grouping=${deviceGrouping}&source_grouping=${sourceGrouping}&page_grouping=${pageGrouping}`);
             const data = await response.json();
             
             const timestamps = data.stats.map(([timestamp]) => {

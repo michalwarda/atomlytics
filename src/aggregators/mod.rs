@@ -6,7 +6,7 @@ pub mod location_metrics_aggregator;
 pub mod page_metrics_aggregator;
 pub mod source_metrics_aggregator;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub enum TimeFrame {
     Realtime,
     Today,
@@ -16,14 +16,14 @@ pub enum TimeFrame {
     AllTime,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub enum Granularity {
     Minutes,
     Hours,
     Days,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy, Debug)]
 pub enum Metric {
     UniqueVisitors,
     Visits,
@@ -32,35 +32,35 @@ pub enum Metric {
     BounceRate,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy, Debug)]
 pub enum PageGrouping {
     Page,
     EntryPage,
     ExitPage,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy, Debug)]
 pub enum LocationGrouping {
     Country,
     Region,
     City,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy, Debug)]
 pub enum DeviceGrouping {
     Browser,
     OperatingSystem,
     DeviceType,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy, Debug)]
 pub enum SourceGrouping {
     Source,
     Referrer,
     Campaign,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct AggregateMetrics {
     pub unique_visitors: i64,
     pub total_visits: i64,
@@ -70,7 +70,7 @@ pub struct AggregateMetrics {
     pub bounce_rate: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct LocationMetrics {
     pub country: String,
     pub region: Option<String>,
@@ -82,7 +82,7 @@ pub struct LocationMetrics {
     pub bounce_rate: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct DeviceMetrics {
     pub browser: String,
     pub operating_system: String,
@@ -94,7 +94,7 @@ pub struct DeviceMetrics {
     pub bounce_rate: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct SourceMetrics {
     pub source: String,
     pub referrer: Option<String>,
@@ -108,7 +108,7 @@ pub struct SourceMetrics {
     pub bounce_rate: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct PageMetrics {
     pub page_path: String,
     pub entry_page_path: String,
