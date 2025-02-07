@@ -22,16 +22,16 @@ impl PageMetricsAggregator {
         let gathered_fields = vec![
             (
                 "page_path".to_string(),
-                "CASE WHEN event_type = 'visit' THEN page_url_path END as page_path".to_string(),
+                "CASE WHEN event_type = 'visit' THEN page_url_path ELSE NULL END as page_path".to_string(),
             ),
             (
                 "entry_page_path".to_string(),
-                "CASE WHEN event_type = 'visit' THEN page_url_path END as entry_page_path"
+                "CASE WHEN event_type = 'visit' THEN page_url_path ELSE NULL END as entry_page_path"
                     .to_string(),
             ),
             (
                 "exit_page_path".to_string(),
-                "CASE WHEN event_type = 'visit' THEN last_visited_url_path END as exit_page_path"
+                "CASE WHEN event_type = 'visit' THEN last_visited_url_path ELSE NULL END as exit_page_path"
                     .to_string(),
             ),
         ];
@@ -77,12 +77,17 @@ impl MetricsOutput for PageMetrics {
         let pageviews: i64 = row.get(5)?;
         let avg_visit_duration: i64 = row.get::<_, Option<i64>>(6)?.unwrap_or(0);
         let bounce_rate: i64 = row.get::<_, Option<i64>>(7)?.unwrap_or(0);
+        let page_path: String = row.get(0).unwrap_or("".to_string());
+        let entry_page_path: String = row.get(1).unwrap_or("".to_string());
+        let exit_page_path: String = row.get(2).unwrap_or("".to_string());
 
-        if visitors > 0 {
+        println!("page_views: {} {}", pageviews, page_path);
+
+        if visitors > 0 && page_path.len() > 0 {
             Ok(Some(PageMetrics {
-                page_path: row.get(0)?,
-                entry_page_path: row.get(1)?,
-                exit_page_path: row.get(2)?,
+                page_path,
+                entry_page_path,
+                exit_page_path,
                 visitors,
                 visits,
                 pageviews,

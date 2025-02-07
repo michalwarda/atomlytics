@@ -114,7 +114,7 @@ impl BaseMetricsAggregator {
                 AS FLOAT) as bounce_rate,
                 strftime('%s', 'now') as created_at
             FROM events
-            WHERE timestamp >= ?3 AND event_type = 'visit'
+            WHERE timestamp >= ?3
             GROUP BY period_start, {}",
             table_name, field_names, fields_str, group_by
         );
@@ -188,7 +188,7 @@ impl BaseMetricsAggregator {
                 AS FLOAT) as bounce_rate,
                 strftime('%s', 'now') as created_at
             FROM events 
-            WHERE timestamp >= ? AND timestamp <= ? AND event_type = 'visit'
+            WHERE timestamp >= ? AND timestamp <= ?
             GROUP BY {}",
             table_name, field_names, fields_str, group_by
         );

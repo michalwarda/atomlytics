@@ -756,6 +756,128 @@ fn get_migrations() -> Vec<Migration> {
 
             Ok(())
         }),
+        Migration::new("Fix page metrics tables UNIQUE constraints", 19, |conn| {
+            // Create new page_statistics table with updated constraints
+            conn.execute(
+                "CREATE TABLE page_statistics_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_type TEXT NOT NULL,
+                    period_start INTEGER NOT NULL,
+                    page_path TEXT,
+                    entry_page_path TEXT,
+                    exit_page_path TEXT,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    avg_visit_duration INTEGER,
+                    bounce_rate INTEGER,
+                    created_at INTEGER NOT NULL
+                )",
+                [],
+            )?;
+
+            // Create new page_aggregated_metrics table with updated constraints
+            conn.execute(
+                "CREATE TABLE page_aggregated_metrics_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_name TEXT NOT NULL,
+                    start_ts INTEGER NOT NULL,
+                    end_ts INTEGER NOT NULL,
+                    page_path TEXT,
+                    entry_page_path TEXT,
+                    exit_page_path TEXT,
+                    visitors INTEGER NOT NULL,
+                    visits INTEGER NOT NULL,
+                    pageviews INTEGER NOT NULL,
+                    avg_visit_duration INTEGER,
+                    bounce_rate INTEGER,
+                    created_at INTEGER NOT NULL
+                )",
+                [],
+            )?;
+
+            // Create unique indices with COALESCE
+            conn.execute(
+                "CREATE UNIQUE INDEX idx_page_statistics_unique 
+                 ON page_statistics_new(
+                    period_type, 
+                    period_start, 
+                    COALESCE(page_path, ''), 
+                    COALESCE(entry_page_path, ''), 
+                    COALESCE(exit_page_path, '')
+                )",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE UNIQUE INDEX idx_page_aggregated_metrics_unique 
+                 ON page_aggregated_metrics_new(
+                    period_name, 
+                    start_ts, 
+                    end_ts, 
+                    COALESCE(page_path, ''), 
+                    COALESCE(entry_page_path, ''), 
+                    COALESCE(exit_page_path, '')
+                )",
+                [],
+            )?;
+
+            // Copy data from old tables to new ones
+            conn.execute(
+                "INSERT INTO page_statistics_new 
+                SELECT * FROM page_statistics",
+                [],
+            )?;
+
+            conn.execute(
+                "INSERT INTO page_aggregated_metrics_new 
+                SELECT * FROM page_aggregated_metrics",
+                [],
+            )?;
+
+            // Drop old tables
+            conn.execute("DROP TABLE page_statistics", [])?;
+            conn.execute("DROP TABLE page_aggregated_metrics", [])?;
+
+            // Rename new tables to original names
+            conn.execute(
+                "ALTER TABLE page_statistics_new 
+                RENAME TO page_statistics",
+                [],
+            )?;
+            conn.execute(
+                "ALTER TABLE page_aggregated_metrics_new 
+                RENAME TO page_aggregated_metrics",
+                [],
+            )?;
+
+            // Recreate other indices
+            conn.execute(
+                "CREATE INDEX idx_page_statistics_period 
+                ON page_statistics(period_type, period_start)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX idx_page_aggregated_metrics_period 
+                ON page_aggregated_metrics(period_name, start_ts, end_ts)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX idx_page_statistics_paths 
+                ON page_statistics(page_path, entry_page_path, exit_page_path)",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE INDEX idx_page_aggregated_metrics_paths 
+                ON page_aggregated_metrics(page_path, entry_page_path, exit_page_path)",
+                [],
+            )?;
+
+            Ok(())
+        }),
     ]
 }
 
