@@ -85,7 +85,7 @@ impl FilteredStatisticsHandler {
             Granularity::Days => 86400,
         };
 
-        let filter_conditions = self.build_filter_conditions(&query);
+        let (filter_condition_str, filter_params) = self.build_filter_conditions(&query);
 
         let stats = self
             .get_time_series_data(
@@ -93,14 +93,20 @@ impl FilteredStatisticsHandler {
                 end_ts,
                 interval,
                 &query.metric,
-                &filter_conditions,
+                filter_condition_str.clone(),
+                filter_params.clone(),
             )
             .await?;
         let aggregates = self
-            .calculate_aggregates(start_ts, end_ts, &filter_conditions)
+            .calculate_aggregates(
+                start_ts,
+                end_ts,
+                filter_condition_str.clone(),
+                filter_params.clone(),
+            )
             .await?;
         let realtime_aggregates = self
-            .calculate_realtime_aggregates(&filter_conditions)
+            .calculate_realtime_aggregates(filter_condition_str.clone(), filter_params.clone())
             .await?;
         let location_metrics = self
             .get_location_metrics(
@@ -108,7 +114,8 @@ impl FilteredStatisticsHandler {
                 end_ts,
                 &query.metric,
                 query.location_grouping,
-                &filter_conditions,
+                filter_condition_str.clone(),
+                filter_params.clone(),
             )
             .await?;
         let device_metrics = self
@@ -117,7 +124,8 @@ impl FilteredStatisticsHandler {
                 end_ts,
                 &query.metric,
                 query.device_grouping,
-                &filter_conditions,
+                filter_condition_str.clone(),
+                filter_params.clone(),
             )
             .await?;
         let source_metrics = self
@@ -126,7 +134,8 @@ impl FilteredStatisticsHandler {
                 end_ts,
                 &query.metric,
                 query.source_grouping,
-                &filter_conditions,
+                filter_condition_str.clone(),
+                filter_params.clone(),
             )
             .await?;
         let page_metrics = self
@@ -135,7 +144,8 @@ impl FilteredStatisticsHandler {
                 end_ts,
                 &query.metric,
                 query.page_grouping,
-                &filter_conditions,
+                filter_condition_str,
+                filter_params,
             )
             .await?;
         Ok(FilteredStatistics {
@@ -149,41 +159,50 @@ impl FilteredStatisticsHandler {
         })
     }
 
-    fn build_filter_conditions(&self, query: &FilteredStatisticsQuery) -> String {
+    fn build_filter_conditions(&self, query: &FilteredStatisticsQuery) -> (String, Vec<String>) {
         let mut conditions = Vec::new();
-
+        let mut params = Vec::new();
         if let Some(country) = &query.filter_country {
-            conditions.push(format!("v.country = '{}'", country));
+            conditions.push("v.country = ?".to_string());
+            params.push(country.clone());
         }
         if let Some(region) = &query.filter_region {
-            conditions.push(format!("v.region = '{}'", region));
+            conditions.push("v.region = ?".to_string());
+            params.push(region.clone());
         }
         if let Some(city) = &query.filter_city {
-            conditions.push(format!("v.city = '{}'", city));
+            conditions.push("v.city = ?".to_string());
+            params.push(city.clone());
         }
         if let Some(browser) = &query.filter_browser {
-            conditions.push(format!("v.browser = '{}'", browser));
+            conditions.push("v.browser = ?".to_string());
+            params.push(browser.clone());
         }
         if let Some(os) = &query.filter_os {
-            conditions.push(format!("v.operating_system = '{}'", os));
+            conditions.push("v.operating_system = ?".to_string());
+            params.push(os.clone());
         }
         if let Some(device) = &query.filter_device {
-            conditions.push(format!("v.device_type = '{}'", device));
+            conditions.push("v.device_type = ?".to_string());
+            params.push(device.clone());
         }
         if let Some(page) = &query.filter_page {
-            conditions.push(format!("v.page_url_path = '{}'", page));
+            conditions.push("v.page_url_path = ?".to_string());
+            params.push(page.clone());
         }
         if let Some(source) = &query.filter_source {
-            conditions.push(format!("v.source = '{}'", source));
+            conditions.push("v.source = ?".to_string());
+            params.push(source.clone());
         }
         if let Some(campaign) = &query.filter_campaign {
-            conditions.push(format!("v.utm_campaign = '{}'", campaign));
+            conditions.push("v.utm_campaign = ?".to_string());
+            params.push(campaign.clone());
         }
 
         if conditions.is_empty() {
-            String::new()
+            (String::new(), params)
         } else {
-            format!("AND {}", conditions.join(" AND "))
+            (format!("AND {}", conditions.join(" AND ")), params)
         }
     }
 
@@ -193,14 +212,15 @@ impl FilteredStatisticsHandler {
         end_ts: i64,
         interval: i64,
         metric: &Metric,
-        filter_conditions: &str,
+        filter_condition_str: String,
+        filter_params: Vec<String>,
     ) -> Result<Vec<(i64, i64)>, StatusCode> {
         let metric_expr = match metric {
             Metric::UniqueVisitors => "COUNT(DISTINCT e.visitor_id)",
             Metric::Visits => "COUNT(DISTINCT v.id)",
             Metric::Pageviews => "COUNT(DISTINCT CASE WHEN e.event_type = 'pageview' THEN e.id ELSE NULL END)",
             Metric::AvgVisitDuration => "CAST(AVG(CASE WHEN v.id IS NOT NULL AND v.last_activity_at > v.timestamp THEN COALESCE(v.last_activity_at - v.timestamp, 0) ELSE 0 END) AS INTEGER)",
-            Metric::BounceRate => "CAST(CAST(COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.timestamp = v.last_activity_at THEN v.id ELSE NULL END) AS FLOAT) / CAST(NULLIF(COUNT(DISTINCT v.id), 0) AS FLOAT) * 100.0 AS INTEGER)",
+            Metric::BounceRate => "COALESCE(CAST(CAST(COUNT(DISTINCT CASE WHEN v.id IS NOT NULL AND v.timestamp = v.last_activity_at THEN v.id ELSE NULL END) AS FLOAT) / NULLIF(CAST(COUNT(DISTINCT v.id) AS FLOAT), 0) * 100.0 AS INTEGER), 0)",
         };
 
         let query = format!(
@@ -212,16 +232,22 @@ impl FilteredStatisticsHandler {
             WHERE e.timestamp >= ? AND e.timestamp <= ? {}
             GROUP BY period_start
             ORDER BY period_start ASC",
-            metric_expr, filter_conditions
+            metric_expr, filter_condition_str
         );
 
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&query)?;
-                let rows = stmt
-                    .query_map(params![interval, interval, start_ts, end_ts], |row| {
-                        Ok((row.get(0)?, row.get(1)?))
-                    })?;
+                let mut params_vec: Vec<&(dyn rusqlite::types::ToSql)> = Vec::new();
+                params_vec.push(&interval);
+                params_vec.push(&interval);
+                params_vec.push(&start_ts);
+                params_vec.push(&end_ts);
+                for p in &filter_params {
+                    params_vec.push(p);
+                }
+                let rows =
+                    stmt.query_map(params_vec.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))?;
 
                 let mut data_map = std::collections::HashMap::new();
                 let mut lower_bound = None;
@@ -258,7 +284,8 @@ impl FilteredStatisticsHandler {
         &self,
         start_ts: i64,
         end_ts: i64,
-        filter_conditions: &str,
+        filter_condition_str: String,
+        filter_params: Vec<String>,
     ) -> Result<AggregateMetrics, StatusCode> {
         let query = format!(
             "SELECT 
@@ -274,13 +301,19 @@ impl FilteredStatisticsHandler {
             FROM events e
             LEFT JOIN visits v ON e.visit_id = v.id
             WHERE e.timestamp >= ? AND e.timestamp <= ? {}",
-            filter_conditions
+            filter_condition_str
         );
 
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&query)?;
-                stmt.query_row(params![start_ts, end_ts], |row| {
+                let mut params_vec: Vec<&(dyn rusqlite::types::ToSql)> = Vec::new();
+                params_vec.push(&start_ts);
+                params_vec.push(&end_ts);
+                for p in &filter_params {
+                    params_vec.push(p);
+                }
+                stmt.query_row(params_vec.as_slice(), |row| {
                     Ok(AggregateMetrics {
                         unique_visitors: row.get(0)?,
                         total_visits: row.get(1)?,
@@ -301,7 +334,8 @@ impl FilteredStatisticsHandler {
 
     async fn calculate_realtime_aggregates(
         &self,
-        filter_conditions: &str,
+        filter_condition_str: String,
+        filter_params: Vec<String>,
     ) -> Result<AggregateMetrics, StatusCode> {
         let now = Utc::now().timestamp();
         let thirty_minutes_ago = now - 30 * 60;
@@ -321,13 +355,19 @@ impl FilteredStatisticsHandler {
             FROM events e
             LEFT JOIN visits v ON e.visit_id = v.id
             WHERE e.timestamp >= ? AND e.timestamp <= ? {}",
-            filter_conditions
+            filter_condition_str
         );
 
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&query)?;
-                stmt.query_row([thirty_minutes_ago, now], |row| {
+                let mut params_vec_rt: Vec<&(dyn rusqlite::types::ToSql)> = Vec::new();
+                params_vec_rt.push(&thirty_minutes_ago);
+                params_vec_rt.push(&now);
+                for p in &filter_params {
+                    params_vec_rt.push(p);
+                }
+                stmt.query_row(params_vec_rt.as_slice(), |row| {
                     Ok(AggregateMetrics {
                         unique_visitors: row.get(0)?,
                         total_visits: row.get(1)?,
@@ -352,7 +392,8 @@ impl FilteredStatisticsHandler {
         end_ts: i64,
         metric: &Metric,
         grouping: LocationGrouping,
-        filter_conditions: &str,
+        filter_condition_str: String,
+        filter_params: Vec<String>,
     ) -> Result<Vec<LocationMetrics>, StatusCode> {
         let (group_fields, group_field, order_field) = match grouping {
             LocationGrouping::Country => (
@@ -394,13 +435,19 @@ impl FilteredStatisticsHandler {
             WHERE e.timestamp >= ? AND e.timestamp <= ? {}
             GROUP BY {}
             ORDER BY {} {}",
-            group_fields, filter_conditions, group_field, order_field, order_direction
+            group_fields, filter_condition_str, group_field, order_field, order_direction
         );
 
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&query)?;
-                let rows = stmt.query_map([start_ts, end_ts], |row| {
+                let mut params_vec_loc: Vec<&(dyn rusqlite::types::ToSql)> = Vec::new();
+                params_vec_loc.push(&start_ts);
+                params_vec_loc.push(&end_ts);
+                for p in &filter_params {
+                    params_vec_loc.push(p);
+                }
+                let rows = stmt.query_map(params_vec_loc.as_slice(), |row| {
                     Ok(LocationMetrics {
                         country: row.get(0).unwrap_or("".to_string()),
                         region: row.get(1).unwrap_or(None),
@@ -429,7 +476,8 @@ impl FilteredStatisticsHandler {
         end_ts: i64,
         metric: &Metric,
         grouping: DeviceGrouping,
-        filter_conditions: &str,
+        filter_condition_str: String,
+        filter_params: Vec<String>,
     ) -> Result<Vec<DeviceMetrics>, StatusCode> {
         let (group_fields, group_field, order_field) = match grouping {
             DeviceGrouping::Browser => (
@@ -471,13 +519,19 @@ impl FilteredStatisticsHandler {
             WHERE e.timestamp >= ? AND e.timestamp <= ? {}
             GROUP BY {}
             ORDER BY {} {}",
-            group_fields, filter_conditions, group_field, order_field, order_direction
+            group_fields, filter_condition_str, group_field, order_field, order_direction
         );
 
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&query)?;
-                let rows = stmt.query_map([start_ts, end_ts], |row| {
+                let mut params_vec_dev: Vec<&(dyn rusqlite::types::ToSql)> = Vec::new();
+                params_vec_dev.push(&start_ts);
+                params_vec_dev.push(&end_ts);
+                for p in &filter_params {
+                    params_vec_dev.push(p);
+                }
+                let rows = stmt.query_map(params_vec_dev.as_slice(), |row| {
                     Ok(DeviceMetrics {
                         browser: row.get(0).unwrap_or("".to_string()),
                         operating_system: row.get(1).unwrap_or("".to_string()),
@@ -506,7 +560,8 @@ impl FilteredStatisticsHandler {
         end_ts: i64,
         metric: &Metric,
         grouping: SourceGrouping,
-        filter_conditions: &str,
+        filter_condition_str: String,
+        filter_params: Vec<String>,
     ) -> Result<Vec<SourceMetrics>, StatusCode> {
         let (group_fields, group_field, order_field) = match grouping {
             SourceGrouping::Source => (
@@ -548,13 +603,19 @@ impl FilteredStatisticsHandler {
             WHERE e.timestamp >= ? AND e.timestamp <= ? {}
             GROUP BY {}
             ORDER BY {} {}",
-            group_fields, filter_conditions, group_field, order_field, order_direction
+            group_fields, filter_condition_str, group_field, order_field, order_direction
         );
 
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&query)?;
-                let rows = stmt.query_map([start_ts, end_ts], |row| {
+                let mut params_vec_src: Vec<&(dyn rusqlite::types::ToSql)> = Vec::new();
+                params_vec_src.push(&start_ts);
+                params_vec_src.push(&end_ts);
+                for p in &filter_params {
+                    params_vec_src.push(p);
+                }
+                let rows = stmt.query_map(params_vec_src.as_slice(), |row| {
                     Ok(SourceMetrics {
                         source: row.get(0).unwrap_or("".to_string()),
                         referrer: row.get(1).unwrap_or(None),
@@ -585,7 +646,8 @@ impl FilteredStatisticsHandler {
         end_ts: i64,
         metric: &Metric,
         grouping: PageGrouping,
-        filter_conditions: &str,
+        filter_condition_str: String,
+        filter_params: Vec<String>,
     ) -> Result<Vec<PageMetrics>, StatusCode> {
         let (group_fields, group_field, order_field) = match grouping {
             PageGrouping::Page => (
@@ -627,13 +689,19 @@ impl FilteredStatisticsHandler {
             WHERE e.timestamp >= ? AND e.timestamp <= ? {}
             GROUP BY {}
             ORDER BY {} {}",
-            group_fields, filter_conditions, group_field, order_field, order_direction
+            group_fields, filter_condition_str, group_field, order_field, order_direction
         );
 
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&query)?;
-                let rows = stmt.query_map([start_ts, end_ts], |row| {
+                let mut params_vec_page: Vec<&(dyn rusqlite::types::ToSql)> = Vec::new();
+                params_vec_page.push(&start_ts);
+                params_vec_page.push(&end_ts);
+                for p in &filter_params {
+                    params_vec_page.push(p);
+                }
+                let rows = stmt.query_map(params_vec_page.as_slice(), |row| {
                     Ok(PageMetrics {
                         page_path: row.get(0).unwrap_or("".to_string()),
                         entry_page_path: row.get(1).unwrap_or("".to_string()),
