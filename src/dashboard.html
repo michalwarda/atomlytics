@@ -286,6 +286,56 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* Modal styles */
+        .modal {
+          display: none; 
+          position: fixed;
+          z-index: 100;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 100%;
+          overflow: auto;
+          background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+          background-color: #fefefe;
+          margin: 15% auto;
+          padding: 20px;
+          border: 1px solid #888;
+          width: 80%;
+          max-width: 500px;
+          border-radius: 10px;
+          position: relative;
+        }
+        .close {
+          color: #aaa;
+          float: right;
+          font-size: 28px;
+          font-weight: bold;
+          cursor: pointer;
+        }
+        .modal label {
+          display: block;
+          margin-top: 10px;
+        }
+        .modal select {
+          width: 100%;
+          padding: 8px;
+          margin-top: 5px;
+          border-radius: 4px;
+          border: 1px solid #ddd;
+        }
+        .modal button {
+          margin-top: 20px;
+          padding: 10px 20px;
+          border: none;
+          border-radius: 4px;
+          background-color: #7c4dff;
+          color: white;
+          cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -311,6 +361,13 @@
                     <option value="Last30Days">Last 30 Days</option>
                     <option value="AllTime">All Time</option>
                 </select>
+                <button id="filterButton" onclick="openFilterModal()" style="background:none; border:none; cursor:pointer; margin-left:10px;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7c4dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  Filters
+                </button>
             </div>
         </div>
 
@@ -421,6 +478,32 @@
         </div>
     </div>
 
+    <div id="filterModal" class="modal">
+      <div class="modal-content">
+        <span class="close" onclick="closeFilterModal()">&times;</span>
+        <h2>Filters</h2>
+        <label for="filter_country">Country</label>
+        <select id="filter_country"></select>
+        <label for="filter_region">Region</label>
+        <select id="filter_region"></select>
+        <label for="filter_city">City</label>
+        <select id="filter_city"></select>
+        <label for="filter_browser">Browser</label>
+        <select id="filter_browser"></select>
+        <label for="filter_os">Operating System</label>
+        <select id="filter_os"></select>
+        <label for="filter_device">Device Type</label>
+        <select id="filter_device"></select>
+        <label for="filter_page">Page</label>
+        <select id="filter_page"></select>
+        <label for="filter_source">Source</label>
+        <select id="filter_source"></select>
+        <label for="filter_campaign">Campaign</label>
+        <select id="filter_campaign"></select>
+        <button onclick="applyFilters()">Apply Filters</button>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <!-- LIVE_RELOAD_SCRIPT -->
@@ -473,22 +556,14 @@
         }
 
         function updateQueryParams(newMetric) {
-            const timeframe = document.getElementById('timeframe').value;
-            const granularity = document.getElementById('granularity').value;
-            const locationGrouping = document.getElementById('location-grouping').value;
-            const deviceGrouping = document.getElementById('device-grouping').value;
-            const sourceGrouping = document.getElementById('source-grouping').value;
-            const pageGrouping = document.getElementById('page-grouping').value;
-
-            const params = new URLSearchParams();
+            const params = new URLSearchParams(window.location.search);
             params.set('metric', newMetric || document.querySelector('.metric.active')?.getAttribute('data-metric') || 'UniqueVisitors');
-            params.set('timeframe', timeframe);
-            params.set('granularity', granularity);
-            params.set('locationGrouping', locationGrouping);
-            params.set('deviceGrouping', deviceGrouping);
-            params.set('sourceGrouping', sourceGrouping);
-            params.set('pageGrouping', pageGrouping);
-            
+            params.set('timeframe', document.getElementById('timeframe').value);
+            params.set('granularity', document.getElementById('granularity').value);
+            params.set('locationGrouping', document.getElementById('location-grouping').value);
+            params.set('deviceGrouping', document.getElementById('device-grouping').value);
+            params.set('sourceGrouping', document.getElementById('source-grouping').value);
+            params.set('pageGrouping', document.getElementById('page-grouping').value);
             const newUrl = `${window.location.pathname}?${params.toString()}`;
             window.history.pushState({}, '', newUrl);
         }
@@ -846,12 +921,22 @@
         }
 
         let chart;
+        let lastData = null;
 
         async function fetchData() {
             const {timeframe, granularity, metric, locationGrouping, deviceGrouping, sourceGrouping, pageGrouping} = getQueryParams();
-            
-            const response = await fetch(`/api/filtered-statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}&device_grouping=${deviceGrouping}&source_grouping=${sourceGrouping}&page_grouping=${pageGrouping}`);
+            let url = `/api/filtered-statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}&device_grouping=${deviceGrouping}&source_grouping=${sourceGrouping}&page_grouping=${pageGrouping}`;
+            const urlParams = new URLSearchParams(window.location.search);
+            const filterKeys = ['filter_country','filter_region','filter_city','filter_browser','filter_os','filter_device','filter_page','filter_source','filter_campaign'];
+            filterKeys.forEach(key => {
+                const value = urlParams.get(key);
+                if (value && value.trim() !== '') {
+                    url += `&${key}=${encodeURIComponent(value)}`;
+                }
+            });
+            const response = await fetch(url);
             const data = await response.json();
+            lastData = data; // Save data for filter options
             
             const timestamps = data.stats.map(([timestamp]) => {
                 const date = new Date(timestamp * 1000);
@@ -967,7 +1052,6 @@
                 chart.options.scales.x.title.text = granularity === 'Days' ? 'Date' : 'Time';
                 chart.options.scales.y.title.text = metric;
                 chart.options.scales.y.suggestedMax = Math.max(...values) * 1.1;
-                // Update Y-axis ticks configuration
                 chart.options.scales.y.ticks = {
                     padding: 10,
                     stepSize: metric === 'AvgVisitDuration' ? undefined : 1,
@@ -1002,6 +1086,93 @@
         setInterval(() => {
             fetchData();
         }, 10000);
+
+        async function loadFilterValues() {
+            try {
+                const response = await fetch('/api/filter-values');
+                if (!response.ok) {
+                    throw new Error('Failed to load filter values');
+                }
+                const data = await response.json();
+                // Populate each filter select with the received distinct values
+                populateSelectOptions('filter_country', data.country);
+                populateSelectOptions('filter_region', data.region);
+                populateSelectOptions('filter_city', data.city);
+                populateSelectOptions('filter_browser', data.browser);
+                populateSelectOptions('filter_os', data.operating_system);
+                populateSelectOptions('filter_device', data.device_type);
+                populateSelectOptions('filter_page', data.page_url_path);
+                populateSelectOptions('filter_source', data.source);
+                populateSelectOptions('filter_campaign', data.utm_campaign);
+            } catch (error) {
+                console.error('Error loading filter values:', error);
+            }
+        }
+
+        async function openFilterModal() {
+            await loadFilterValues();
+            prefillFilterSelections();
+            document.getElementById('filterModal').style.display = 'block';
+        }
+
+        function closeFilterModal() {
+            document.getElementById('filterModal').style.display = 'none';
+        }
+
+        function populateSelectOptions(selectId, optionsArray) {
+            const selectElem = document.getElementById(selectId);
+            if (!selectElem) return;
+            let options = Array.from(new Set(optionsArray));
+            selectElem.innerHTML = '';
+            const allOption = document.createElement("option");
+            allOption.value = "";
+            allOption.text = "All";
+            selectElem.appendChild(allOption);
+            options.forEach(opt => {
+                if(opt) {
+                    const optionElem = document.createElement("option");
+                    optionElem.value = opt;
+                    optionElem.text = opt;
+                    selectElem.appendChild(optionElem);
+                }
+            });
+        }
+
+        function prefillFilterSelections() {
+            const params = new URLSearchParams(window.location.search);
+            ['filter_country', 'filter_region', 'filter_city', 'filter_browser', 'filter_os', 'filter_device', 'filter_page', 'filter_source', 'filter_campaign'].forEach(id => {
+                const elem = document.getElementById(id);
+                if (elem) {
+                    elem.value = params.get(id) || "";
+                }
+            });
+        }
+
+        function updateQueryParamsWithFilters(filters) {
+            const params = new URLSearchParams(window.location.search);
+            for (const key in filters) {
+                params.set(key, filters[key]);
+            }
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
+            window.history.pushState({}, '', newUrl);
+        }
+
+        function applyFilters() {
+            const filters = {
+               filter_country: document.getElementById('filter_country').value,
+               filter_region: document.getElementById('filter_region').value,
+               filter_city: document.getElementById('filter_city').value,
+               filter_browser: document.getElementById('filter_browser').value,
+               filter_os: document.getElementById('filter_os').value,
+               filter_device: document.getElementById('filter_device').value,
+               filter_page: document.getElementById('filter_page').value,
+               filter_source: document.getElementById('filter_source').value,
+               filter_campaign: document.getElementById('filter_campaign').value,
+            };
+            updateQueryParamsWithFilters(filters);
+            closeFilterModal();
+            fetchData();
+        }
     </script>
 </body>
 </html> 

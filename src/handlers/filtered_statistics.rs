@@ -4,7 +4,6 @@ use axum::{
     Json,
 };
 use chrono::{Timelike, Utc};
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio_rusqlite::Connection;

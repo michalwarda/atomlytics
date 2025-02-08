@@ -10,6 +10,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use handlers::filter_values::get_filter_values;
 use handlers::*;
 use maxminddb::geoip2;
 use rusqlite::params;
@@ -306,6 +307,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route("/dashboard", get(serve_dashboard))
                 .route("/api/statistics", get(get_statistics))
                 .route("/api/filtered-statistics", get(get_filtered_statistics))
+                .route("/api/filter-values", get(get_filter_values))
                 .layer(axum::middleware::from_fn(middleware::basic_auth)),
         )
         .layer(

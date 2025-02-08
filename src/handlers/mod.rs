@@ -1,5 +1,6 @@
 pub mod dashboard;
 pub mod event;
+pub mod filter_values;
 pub mod filtered_statistics;
 pub mod health;
 pub mod live_reload;
@@ -9,6 +10,7 @@ pub mod visits;
 
 pub use dashboard::*;
 pub use event::*;
+pub use filter_values::*;
 pub use filtered_statistics::*;
 pub use health::*;
 pub use live_reload::*;
