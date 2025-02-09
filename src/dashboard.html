@@ -336,6 +336,13 @@
           color: white;
           cursor: pointer;
         }
+
+        .location-table tr.filtered {
+            background-color: rgba(124, 77, 255, 0.05) !important;
+        }
+        .location-table tr.filtered:hover {
+            background-color: rgba(124, 77, 255, 0.1) !important;
+        }
     </style>
 </head>
 <body>
@@ -353,6 +360,21 @@
                 <h1>Atomlytics</h1>
             </div>
             <div class="filters">
+                <div id="activeFilters" style="display: flex; gap: 8px; align-items: center;">
+                    <button id="clearFilters" onclick="clearAllFilters()" style="display: none; align-items: center; gap: 6px; background: none; border: 1px solid #eef0f7; border-radius: 8px; padding: 8px 12px; cursor: pointer; color: #7c4dff; transition: all 0.2s ease;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        Clear Filters
+                    </button>
+                </div>
+                <button id="filterButton" onclick="openFilterModal()" style="display: flex; align-items: center; gap: 6px; background: none; border: 1px solid #eef0f7; border-radius: 8px; padding: 8px 12px; cursor: pointer; color: #2c1810; transition: all 0.2s ease;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                    </svg>
+                    Filters
+                </button>
                 <select id="timeframe" onchange="updateFilters()">
                     <option value="Realtime">Realtime</option>
                     <option value="Today" selected>Today</option>
@@ -361,13 +383,6 @@
                     <option value="Last30Days">Last 30 Days</option>
                     <option value="AllTime">All Time</option>
                 </select>
-                <button id="filterButton" onclick="openFilterModal()" style="background:none; border:none; cursor:pointer; margin-left:10px;">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7c4dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                  </svg>
-                  Filters
-                </button>
             </div>
         </div>
 
@@ -479,29 +494,29 @@
     </div>
 
     <div id="filterModal" class="modal">
-      <div class="modal-content">
-        <span class="close" onclick="closeFilterModal()">&times;</span>
-        <h2>Filters</h2>
-        <label for="filter_country">Country</label>
-        <select id="filter_country"></select>
-        <label for="filter_region">Region</label>
-        <select id="filter_region"></select>
-        <label for="filter_city">City</label>
-        <select id="filter_city"></select>
-        <label for="filter_browser">Browser</label>
-        <select id="filter_browser"></select>
-        <label for="filter_os">Operating System</label>
-        <select id="filter_os"></select>
-        <label for="filter_device">Device Type</label>
-        <select id="filter_device"></select>
-        <label for="filter_page">Page</label>
-        <select id="filter_page"></select>
-        <label for="filter_source">Source</label>
-        <select id="filter_source"></select>
-        <label for="filter_campaign">Campaign</label>
-        <select id="filter_campaign"></select>
-        <button onclick="applyFilters()">Apply Filters</button>
-      </div>
+        <div class="modal-content">
+            <span class="close" onclick="closeFilterModal()">&times;</span>
+            <h2>Filters</h2>
+            <label for="filter_country">Country</label>
+            <select id="filter_country"></select>
+            <label for="filter_region">Region</label>
+            <select id="filter_region"></select>
+            <label for="filter_city">City</label>
+            <select id="filter_city"></select>
+            <label for="filter_browser">Browser</label>
+            <select id="filter_browser"></select>
+            <label for="filter_os">Operating System</label>
+            <select id="filter_os"></select>
+            <label for="filter_device">Device Type</label>
+            <select id="filter_device"></select>
+            <label for="filter_page">Page</label>
+            <select id="filter_page"></select>
+            <label for="filter_source">Source</label>
+            <select id="filter_source"></select>
+            <label for="filter_campaign">Campaign</label>
+            <select id="filter_campaign"></select>
+            <button onclick="applyFilters()">Apply Filters</button>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -621,10 +636,14 @@
         }
 
         function updateStatistics(data) {
+            // Update clear filters button visibility
+            const params = new URLSearchParams(window.location.search);
+            const hasFilters = Array.from(params.keys()).some(key => key.startsWith('filter_') && params.get(key));
+            document.getElementById('clearFilters').style.display = hasFilters ? 'flex' : 'none';
+            
             const timeframe = document.getElementById('timeframe').value;
             const isRealtime = timeframe === 'Realtime';
             const metricsContainer = document.querySelector('.metrics-container');
-            const params = new URLSearchParams(window.location.search);
             const currentMetric = params.get('metric') || 'UniqueVisitors';
 
             // Clear existing metrics
@@ -745,15 +764,28 @@
                     switch(locationGrouping) {
                         case 'Country':
                             grouping = country;
+                            row.onclick = () => applyFilterFromTable('filter_country', country);
+                            if (params.get('filter_country') === country) {
+                                row.classList.add('filtered');
+                            }
                             break;
                         case 'Region':
                             grouping = region;
+                            row.onclick = () => applyFilterFromTable('filter_region', region);
+                            if (params.get('filter_region') === region) {
+                                row.classList.add('filtered');
+                            }
                             break;
                         case 'City':
                             grouping = city;
+                            row.onclick = () => applyFilterFromTable('filter_city', city);
+                            if (params.get('filter_city') === city) {
+                                row.classList.add('filtered');
+                            }
                             break;
                     }
                     
+                    row.style.cursor = 'pointer';
                     row.innerHTML = `
                         <td>${grouping}</td>
                         <td>${value}</td>
@@ -796,15 +828,28 @@
                     switch(deviceGrouping) {
                         case 'Browser':
                             grouping = browser;
+                            row.onclick = () => applyFilterFromTable('filter_browser', browser);
+                            if (params.get('filter_browser') === browser) {
+                                row.classList.add('filtered');
+                            }
                             break;
                         case 'OperatingSystem':
                             grouping = operating_system;
+                            row.onclick = () => applyFilterFromTable('filter_os', operating_system);
+                            if (params.get('filter_os') === operating_system) {
+                                row.classList.add('filtered');
+                            }
                             break;
                         case 'DeviceType':
                             grouping = device_type;
+                            row.onclick = () => applyFilterFromTable('filter_device', device_type);
+                            if (params.get('filter_device') === device_type) {
+                                row.classList.add('filtered');
+                            }
                             break;
                     }
                     
+                    row.style.cursor = 'pointer';
                     row.innerHTML = `
                         <td>${grouping}</td>
                         <td>${value}</td>
@@ -847,19 +892,36 @@
                     switch(sourceGrouping) {
                         case 'Source':
                             grouping = source;
+                            row.onclick = () => applyFilterFromTable('filter_source', source);
+                            if (params.get('filter_source') === source) {
+                                row.classList.add('filtered');
+                            }
                             break;
                         case 'Referrer':
                             grouping = referrer || 'Direct';
+                            row.onclick = () => applyFilterFromTable('filter_source', referrer || 'Direct');
+                            if (params.get('filter_source') === (referrer || 'Direct')) {
+                                row.classList.add('filtered');
+                            }
                             break;
                         case 'Campaign':
                             if (utm_source || utm_medium || utm_campaign) {
                                 grouping = `${utm_source || '-'}/${utm_medium || '-'}/${utm_campaign || '-'}`;
+                                row.onclick = () => applyFilterFromTable('filter_campaign', utm_campaign || '');
+                                if (params.get('filter_campaign') === (utm_campaign || '')) {
+                                    row.classList.add('filtered');
+                                }
                             } else {
                                 grouping = 'No Campaign';
+                                row.onclick = () => applyFilterFromTable('filter_campaign', '');
+                                if (params.get('filter_campaign') === '') {
+                                    row.classList.add('filtered');
+                                }
                             }
                             break;
                     }
                     
+                    row.style.cursor = 'pointer';
                     row.innerHTML = `
                         <td>${grouping}</td>
                         <td>${value}</td>
@@ -902,15 +964,28 @@
                     switch(pageGrouping) {
                         case 'Page':
                             path = page_path;
+                            row.onclick = () => applyFilterFromTable('filter_page', page_path);
+                            if (params.get('filter_page') === page_path) {
+                                row.classList.add('filtered');
+                            }
                             break;
                         case 'EntryPage':
                             path = entry_page_path;
+                            row.onclick = () => applyFilterFromTable('filter_page', entry_page_path);
+                            if (params.get('filter_page') === entry_page_path) {
+                                row.classList.add('filtered');
+                            }
                             break;
                         case 'ExitPage':
                             path = exit_page_path;
+                            row.onclick = () => applyFilterFromTable('filter_page', exit_page_path);
+                            if (params.get('filter_page') === exit_page_path) {
+                                row.classList.add('filtered');
+                            }
                             break;
                     }
                     
+                    row.style.cursor = 'pointer';
                     row.innerHTML = `
                         <td>${path}</td>
                         <td>${value}</td>
@@ -1110,19 +1185,20 @@
         }
 
         async function openFilterModal() {
-            await loadFilterValues();
-            prefillFilterSelections();
-            document.getElementById('filterModal').style.display = 'block';
-        }
-
-        function closeFilterModal() {
-            document.getElementById('filterModal').style.display = 'none';
+            try {
+                await loadFilterValues();
+                prefillFilterSelections();
+                document.getElementById('filterModal').style.display = 'block';
+                window.initialFilterValues = getFilterValues();
+            } catch (error) {
+                console.error('Error opening filter modal:', error);
+            }
         }
 
         function populateSelectOptions(selectId, optionsArray) {
             const selectElem = document.getElementById(selectId);
             if (!selectElem) return;
-            let options = Array.from(new Set(optionsArray));
+            let options = Array.from(new Set(optionsArray || []));
             selectElem.innerHTML = '';
             const allOption = document.createElement("option");
             allOption.value = "";
@@ -1138,9 +1214,41 @@
             });
         }
 
+        function closeFilterModal() {
+            if (hasUnsavedChanges()) {
+                if (confirm('You have unsaved filter changes. Are you sure you want to close?')) {
+                    document.getElementById('filterModal').style.display = 'none';
+                }
+            } else {
+                document.getElementById('filterModal').style.display = 'none';
+            }
+        }
+
+        function getFilterValues() {
+            return {
+                filter_country: document.getElementById('filter_country').value,
+                filter_region: document.getElementById('filter_region').value,
+                filter_city: document.getElementById('filter_city').value,
+                filter_browser: document.getElementById('filter_browser').value,
+                filter_os: document.getElementById('filter_os').value,
+                filter_device: document.getElementById('filter_device').value,
+                filter_page: document.getElementById('filter_page').value,
+                filter_source: document.getElementById('filter_source').value,
+                filter_campaign: document.getElementById('filter_campaign').value,
+            };
+        }
+
+        function hasUnsavedChanges() {
+            const currentValues = getFilterValues();
+            return Object.keys(currentValues).some(key => 
+                currentValues[key] !== window.initialFilterValues[key]
+            );
+        }
+
         function prefillFilterSelections() {
             const params = new URLSearchParams(window.location.search);
-            ['filter_country', 'filter_region', 'filter_city', 'filter_browser', 'filter_os', 'filter_device', 'filter_page', 'filter_source', 'filter_campaign'].forEach(id => {
+            ['filter_country', 'filter_region', 'filter_city', 'filter_browser', 'filter_os', 
+             'filter_device', 'filter_page', 'filter_source', 'filter_campaign'].forEach(id => {
                 const elem = document.getElementById(id);
                 if (elem) {
                     elem.value = params.get(id) || "";
@@ -1148,29 +1256,101 @@
             });
         }
 
-        function updateQueryParamsWithFilters(filters) {
-            const params = new URLSearchParams(window.location.search);
-            for (const key in filters) {
-                params.set(key, filters[key]);
+        // Initialize event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Close modal when clicking the X button
+            const closeBtn = document.querySelector('.close');
+            if (closeBtn) {
+                closeBtn.onclick = closeFilterModal;
             }
-            const newUrl = `${window.location.pathname}?${params.toString()}`;
-            window.history.pushState({}, '', newUrl);
-        }
+
+            // Close modal when clicking outside
+            window.onclick = function(event) {
+                const modal = document.getElementById('filterModal');
+                if (event.target === modal) {
+                    closeFilterModal();
+                }
+            };
+
+            // Add change event listeners to all filter selects to track changes
+            ['filter_country', 'filter_region', 'filter_city', 'filter_browser', 'filter_os', 
+             'filter_device', 'filter_page', 'filter_source', 'filter_campaign'].forEach(id => {
+                const elem = document.getElementById(id);
+                if (elem) {
+                    elem.addEventListener('change', function() {
+                        // This will help track if there are unsaved changes
+                        if (window.initialFilterValues) {
+                            const hasChanges = hasUnsavedChanges();
+                            // Optionally, you could update UI to show there are unsaved changes
+                        }
+                    });
+                }
+            });
+        });
 
         function applyFilters() {
-            const filters = {
-               filter_country: document.getElementById('filter_country').value,
-               filter_region: document.getElementById('filter_region').value,
-               filter_city: document.getElementById('filter_city').value,
-               filter_browser: document.getElementById('filter_browser').value,
-               filter_os: document.getElementById('filter_os').value,
-               filter_device: document.getElementById('filter_device').value,
-               filter_page: document.getElementById('filter_page').value,
-               filter_source: document.getElementById('filter_source').value,
-               filter_campaign: document.getElementById('filter_campaign').value,
-            };
+            const filters = getFilterValues();
             updateQueryParamsWithFilters(filters);
+            window.initialFilterValues = {...filters}; // Update initial values after applying
             closeFilterModal();
+            fetchData();
+        }
+
+        function applyFilterFromTable(filterKey, value) {
+            const params = new URLSearchParams(window.location.search);
+            
+            // If clicking the same value, just remove it
+            if (params.get(filterKey) === value) {
+                params.delete(filterKey);
+            } else {
+                // If clicking a different value in the same category, replace it
+                // If clicking a value from a different category, add it
+                params.set(filterKey, value);
+            }
+            
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
+            // Use pushState to create a new history entry
+            window.history.pushState({
+                filters: Object.fromEntries(params.entries())
+            }, '', newUrl);
+            fetchData();
+        }
+
+        // Add history navigation handler
+        window.onpopstate = function(event) {
+            if (event.state && event.state.filters) {
+                // Update filter modal selections if it's open
+                for (const [key, value] of Object.entries(event.state.filters)) {
+                    const element = document.getElementById(key);
+                    if (element) {
+                        element.value = value;
+                    }
+                }
+                fetchData();
+            }
+        };
+
+        function clearAllFilters() {
+            const params = new URLSearchParams(window.location.search);
+            // Remove all filter parameters
+            Array.from(params.keys())
+                .filter(key => key.startsWith('filter_'))
+                .forEach(key => params.delete(key));
+            
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
+            window.history.pushState({
+                filters: {}
+            }, '', newUrl);
+            
+            // Clear filter modal selections
+            ['filter_country', 'filter_region', 'filter_city', 'filter_browser', 'filter_os', 
+             'filter_device', 'filter_page', 'filter_source', 'filter_campaign'].forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.value = '';
+                }
+            });
+            
             fetchData();
         }
     </script>
