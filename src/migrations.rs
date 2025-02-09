@@ -927,6 +927,31 @@ fn get_migrations() -> Vec<Migration> {
 
             Ok(())
         }),
+        Migration::new("Add filter values cache table", 21, |conn| {
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS filter_values_cache (                
+                    id INTEGER PRIMARY KEY,                
+                    country TEXT,                
+                    region TEXT,
+                    city TEXT,
+                    browser TEXT,
+                    operating_system TEXT,
+                    device_type TEXT,
+                    page_url_path TEXT,
+                    source TEXT,
+                    utm_campaign TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )",
+                [],
+            )?;
+
+            conn.execute(
+                "INSERT OR IGNORE INTO filter_values_cache (id) VALUES (1)",
+                [],
+            )?;
+
+            Ok(())
+        }),
     ]
 }
 

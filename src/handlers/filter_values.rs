@@ -1,8 +1,8 @@
 use crate::AppState;
 use axum::{extract::State, http::StatusCode, Json};
 use serde::Serialize;
-use std::sync::Arc;
-use tokio_rusqlite::Connection;
+use serde_json;
+use tracing::error;
 
 #[derive(Serialize)]
 pub struct FilterValues {
@@ -20,55 +20,45 @@ pub struct FilterValues {
 pub async fn get_filter_values(
     State(state): State<AppState>,
 ) -> Result<Json<FilterValues>, StatusCode> {
-    let filter_values = state.db.call(|conn| {
-        // Query distinct values for each filter
-        let mut stmt = conn.prepare("SELECT DISTINCT country FROM visits WHERE country IS NOT NULL AND country <> ''")?;
-        let countries = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
+    let filter_values = state.db.call(|conn| -> Result<FilterValues, tokio_rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT country, region, city, browser, operating_system, device_type, page_url_path, source, utm_campaign FROM filter_values_cache WHERE id = 1").map_err(|e| tokio_rusqlite::Error::Rusqlite(e))?;
+        let filter_values = stmt.query_row([], |row| {
+            let country_json: String = row.get(0)?;
+            let region_json: String = row.get(1)?;
+            let city_json: String = row.get(2)?;
+            let browser_json: String = row.get(3)?;
+            let operating_system_json: String = row.get(4)?;
+            let device_type_json: String = row.get(5)?;
+            let page_url_path_json: String = row.get(6)?;
+            let source_json: String = row.get(7)?;
+            let utm_campaign_json: String = row.get(8)?;
 
-        let mut stmt = conn.prepare("SELECT DISTINCT region FROM visits WHERE region IS NOT NULL AND region <> ''")?;
-        let regions = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
+            let countries: Vec<String> = serde_json::from_str(&country_json).unwrap_or_default();
+            let regions: Vec<String> = serde_json::from_str(&region_json).unwrap_or_default();
+            let cities: Vec<String> = serde_json::from_str(&city_json).unwrap_or_default();
+            let browsers: Vec<String> = serde_json::from_str(&browser_json).unwrap_or_default();
+            let operating_systems: Vec<String> = serde_json::from_str(&operating_system_json).unwrap_or_default();
+            let device_types: Vec<String> = serde_json::from_str(&device_type_json).unwrap_or_default();
+            let page_url_paths: Vec<String> = serde_json::from_str(&page_url_path_json).unwrap_or_default();
+            let sources: Vec<String> = serde_json::from_str(&source_json).unwrap_or_default();
+            let campaigns: Vec<String> = serde_json::from_str(&utm_campaign_json).unwrap_or_default();
 
-        let mut stmt = conn.prepare("SELECT DISTINCT city FROM visits WHERE city IS NOT NULL AND city <> ''")?;
-        let cities = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let mut stmt = conn.prepare("SELECT DISTINCT browser FROM visits WHERE browser IS NOT NULL AND browser <> ''")?;
-        let browsers = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let mut stmt = conn.prepare("SELECT DISTINCT operating_system FROM visits WHERE operating_system IS NOT NULL AND operating_system <> ''")?;
-        let operating_systems = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let mut stmt = conn.prepare("SELECT DISTINCT device_type FROM visits WHERE device_type IS NOT NULL AND device_type <> ''")?;
-        let device_types = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let mut stmt = conn.prepare("SELECT DISTINCT page_url_path FROM visits WHERE page_url_path IS NOT NULL AND page_url_path <> ''")?;
-        let page_url_paths = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let mut stmt = conn.prepare("SELECT DISTINCT source FROM visits WHERE source IS NOT NULL AND source <> ''")?;
-        let sources = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let mut stmt = conn.prepare("SELECT DISTINCT utm_campaign FROM visits WHERE utm_campaign IS NOT NULL AND utm_campaign <> ''")?;
-        let campaigns = stmt.query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        Ok(FilterValues {
-            country: countries,
-            region: regions,
-            city: cities,
-            browser: browsers,
-            operating_system: operating_systems,
-            device_type: device_types,
-            page_url_path: page_url_paths,
-            source: sources,
-            utm_campaign: campaigns,
-        })
-    }).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            Ok(FilterValues {
+                country: countries,
+                region: regions,
+                city: cities,
+                browser: browsers,
+                operating_system: operating_systems,
+                device_type: device_types,
+                page_url_path: page_url_paths,
+                source: sources,
+                utm_campaign: campaigns,
+            })
+        }).map_err(|e| tokio_rusqlite::Error::Rusqlite(e))?;
+        Ok(filter_values)
+    }).await.map_err(|e| {
+        error!("Error getting filter values: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     Ok(Json(filter_values))
 }

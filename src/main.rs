@@ -1,4 +1,5 @@
 mod aggregators;
+mod cache;
 #[cfg(debug_assertions)]
 mod dev_tools;
 mod handlers;
@@ -6,6 +7,7 @@ mod middleware;
 mod migrations;
 mod remote_ip;
 
+use crate::cache::refresh_filter_values_cache;
 use axum::{
     routing::{get, post},
     Router,
@@ -279,6 +281,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 error!("Failed to aggregate active statistics: {}", e);
             }
         }
+    });
+
+    // Start filter values cache refresh task
+    let db_clone = app_state.db.clone();
+    tokio::spawn(async move {
+        refresh_filter_values_cache(db_clone).await;
     });
 
     #[cfg(debug_assertions)]
