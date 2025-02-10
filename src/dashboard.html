@@ -513,6 +513,8 @@
             <select id="filter_page"></select>
             <label for="filter_source">Source</label>
             <select id="filter_source"></select>
+            <label for="filter_referrer">Referrer</label>
+            <select id="filter_referrer"></select>
             <label for="filter_campaign">Campaign</label>
             <select id="filter_campaign"></select>
             <button onclick="applyFilters()">Apply Filters</button>
@@ -899,8 +901,8 @@
                             break;
                         case 'Referrer':
                             grouping = referrer || 'Direct';
-                            row.onclick = () => applyFilterFromTable('filter_source', referrer || 'Direct');
-                            if (params.get('filter_source') === (referrer || 'Direct')) {
+                            row.onclick = () => applyFilterFromTable('filter_referrer', referrer || 'Direct');
+                            if (params.get('filter_referrer') === (referrer || 'Direct')) {
                                 row.classList.add('filtered');
                             }
                             break;
@@ -1002,7 +1004,7 @@
             const {timeframe, granularity, metric, locationGrouping, deviceGrouping, sourceGrouping, pageGrouping} = getQueryParams();
             let url = `/api/filtered-statistics?timeframe=${timeframe}&granularity=${granularity}&metric=${metric}&location_grouping=${locationGrouping}&device_grouping=${deviceGrouping}&source_grouping=${sourceGrouping}&page_grouping=${pageGrouping}`;
             const urlParams = new URLSearchParams(window.location.search);
-            const filterKeys = ['filter_country','filter_region','filter_city','filter_browser','filter_os','filter_device','filter_page','filter_source','filter_campaign'];
+            const filterKeys = ['filter_country','filter_region','filter_city','filter_browser','filter_os','filter_device','filter_page','filter_source','filter_referrer','filter_campaign'];
             filterKeys.forEach(key => {
                 const value = urlParams.get(key);
                 if (value && value.trim() !== '') {
@@ -1178,6 +1180,7 @@
                 populateSelectOptions('filter_device', data.device_type);
                 populateSelectOptions('filter_page', data.page_url_path);
                 populateSelectOptions('filter_source', data.source);
+                populateSelectOptions('filter_referrer', data.referrer);
                 populateSelectOptions('filter_campaign', data.utm_campaign);
             } catch (error) {
                 console.error('Error loading filter values:', error);
@@ -1234,6 +1237,7 @@
                 filter_device: document.getElementById('filter_device').value,
                 filter_page: document.getElementById('filter_page').value,
                 filter_source: document.getElementById('filter_source').value,
+                filter_referrer: document.getElementById('filter_referrer').value,
                 filter_campaign: document.getElementById('filter_campaign').value,
             };
         }
@@ -1248,7 +1252,7 @@
         function prefillFilterSelections() {
             const params = new URLSearchParams(window.location.search);
             ['filter_country', 'filter_region', 'filter_city', 'filter_browser', 'filter_os', 
-             'filter_device', 'filter_page', 'filter_source', 'filter_campaign'].forEach(id => {
+             'filter_device', 'filter_page', 'filter_source', 'filter_referrer', 'filter_campaign'].forEach(id => {
                 const elem = document.getElementById(id);
                 if (elem) {
                     elem.value = params.get(id) || "";
@@ -1274,7 +1278,7 @@
 
             // Add change event listeners to all filter selects to track changes
             ['filter_country', 'filter_region', 'filter_city', 'filter_browser', 'filter_os', 
-             'filter_device', 'filter_page', 'filter_source', 'filter_campaign'].forEach(id => {
+             'filter_device', 'filter_page', 'filter_source', 'filter_referrer', 'filter_campaign'].forEach(id => {
                 const elem = document.getElementById(id);
                 if (elem) {
                     elem.addEventListener('change', function() {
@@ -1341,15 +1345,6 @@
             window.history.pushState({
                 filters: {}
             }, '', newUrl);
-            
-            // Clear filter modal selections
-            ['filter_country', 'filter_region', 'filter_city', 'filter_browser', 'filter_os', 
-             'filter_device', 'filter_page', 'filter_source', 'filter_campaign'].forEach(id => {
-                const element = document.getElementById(id);
-                if (element) {
-                    element.value = '';
-                }
-            });
             
             fetchData();
         }

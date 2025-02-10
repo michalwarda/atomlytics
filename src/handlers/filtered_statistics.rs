@@ -32,6 +32,7 @@ pub struct FilteredStatisticsQuery {
     pub filter_device: Option<String>,
     pub filter_page: Option<String>,
     pub filter_source: Option<String>,
+    pub filter_referrer: Option<String>,
     pub filter_campaign: Option<String>,
 }
 
@@ -192,6 +193,10 @@ impl FilteredStatisticsHandler {
         if let Some(source) = &query.filter_source {
             conditions.push("v.source = ?".to_string());
             params.push(source.clone());
+        }
+        if let Some(referrer) = &query.filter_referrer {
+            conditions.push("v.referrer = ?".to_string());
+            params.push(referrer.clone());
         }
         if let Some(campaign) = &query.filter_campaign {
             conditions.push("v.utm_campaign = ?".to_string());

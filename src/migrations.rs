@@ -952,6 +952,13 @@ fn get_migrations() -> Vec<Migration> {
 
             Ok(())
         }),
+        Migration::new("Add referrer to filter_values_cache table", 22, |conn| {
+            conn.execute(
+                "ALTER TABLE filter_values_cache ADD COLUMN referrer TEXT",
+                [],
+            )?;
+            Ok(())
+        }),
     ]
 }
 

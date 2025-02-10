@@ -14,6 +14,7 @@ pub struct FilterValues {
     pub device_type: Vec<String>,
     pub page_url_path: Vec<String>,
     pub source: Vec<String>,
+    pub referrer: Vec<String>,
     pub utm_campaign: Vec<String>,
 }
 
@@ -21,7 +22,7 @@ pub async fn get_filter_values(
     State(state): State<AppState>,
 ) -> Result<Json<FilterValues>, StatusCode> {
     let filter_values = state.db.call(|conn| -> Result<FilterValues, tokio_rusqlite::Error> {
-        let mut stmt = conn.prepare("SELECT country, region, city, browser, operating_system, device_type, page_url_path, source, utm_campaign FROM filter_values_cache WHERE id = 1").map_err(|e| tokio_rusqlite::Error::Rusqlite(e))?;
+        let mut stmt = conn.prepare("SELECT country, region, city, browser, operating_system, device_type, page_url_path, source, referrer, utm_campaign FROM filter_values_cache WHERE id = 1").map_err(|e| tokio_rusqlite::Error::Rusqlite(e))?;
         let filter_values = stmt.query_row([], |row| {
             let country_json: String = row.get(0)?;
             let region_json: String = row.get(1)?;
@@ -31,7 +32,8 @@ pub async fn get_filter_values(
             let device_type_json: String = row.get(5)?;
             let page_url_path_json: String = row.get(6)?;
             let source_json: String = row.get(7)?;
-            let utm_campaign_json: String = row.get(8)?;
+            let referrer_json: String = row.get(8)?;
+            let utm_campaign_json: String = row.get(9)?;
 
             let countries: Vec<String> = serde_json::from_str(&country_json).unwrap_or_default();
             let regions: Vec<String> = serde_json::from_str(&region_json).unwrap_or_default();
@@ -41,6 +43,7 @@ pub async fn get_filter_values(
             let device_types: Vec<String> = serde_json::from_str(&device_type_json).unwrap_or_default();
             let page_url_paths: Vec<String> = serde_json::from_str(&page_url_path_json).unwrap_or_default();
             let sources: Vec<String> = serde_json::from_str(&source_json).unwrap_or_default();
+            let referrers: Vec<String> = serde_json::from_str(&referrer_json).unwrap_or_default();
             let campaigns: Vec<String> = serde_json::from_str(&utm_campaign_json).unwrap_or_default();
 
             Ok(FilterValues {
@@ -52,6 +55,7 @@ pub async fn get_filter_values(
                 device_type: device_types,
                 page_url_path: page_url_paths,
                 source: sources,
+                referrer: referrers,
                 utm_campaign: campaigns,
             })
         }).map_err(|e| tokio_rusqlite::Error::Rusqlite(e))?;
