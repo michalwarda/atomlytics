@@ -31,29 +31,29 @@
             gap: 12px;
         }
         .logo {
-            width: 48px;
-            height: 48px;
+            width: 96px;
+            height: 96px;
             animation: spin 10s linear infinite;
+            filter: drop-shadow(0 0 8px rgba(124, 77, 255, 0.3));
+            transition: all 0.3s ease;
         }
-        @keyframes spin {
-            from {
-                transform: rotate(0deg);
-            }
-            to {
-                transform: rotate(360deg);
-            }
+        .logo:hover {
+            transform: scale(1.05) rotate(10deg);
+            filter: drop-shadow(0 0 12px rgba(124, 77, 255, 0.5));
         }
         .logo .electron-orbit {
             fill: none;
             stroke: #7c4dff;
-            stroke-width: 1.5;
-            opacity: 0.6;
+            stroke-width: 2;
+            opacity: 0.8;
         }
         .logo .nucleus {
             fill: #7c4dff;
+            filter: brightness(1.1);
         }
         .logo .electron {
             fill: #7c4dff;
+            filter: brightness(1.1);
         }
         .graph {
             margin-top: 40px;
