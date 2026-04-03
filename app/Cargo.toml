@@ -1,0 +1,31 @@
+[package]
+name = "atomlytics"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+axum = "0.8.8"
+base64 = "0.22.1"
+chrono = "0.4.44"
+leptos = { version = "0.8.17", features = ["ssr"] }
+leptos_axum = "0.8.8"
+leptos_router = "0.8.13"
+maxminddb = "0.27.3"
+migration = { version = "0.1.0", path = "../migration" }
+rand = "0.10.0"
+sea-orm = { version = "1.1.20", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-chrono", "with-json"] }
+sea-query = "0.32.7"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.11.0"
+thiserror = "2.0.18"
+tokio = { version = "1.50.0", features = ["full"] }
+tower = "0.5.3"
+tower-http = { version = "0.6.8", features = ["trace", "fs", "compression-full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uaparser = "0.6.4"
+url = "2.5.8"
+utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "url"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"], default-features = false }

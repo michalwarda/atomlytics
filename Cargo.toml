@@ -1,57 +1,9 @@
-[package]
-name = "atomlytics"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-# Web server framework
-axum = { version = "0.7", features = ["macros", "ws"] }
-tokio = { version = "1.36", features = ["full", "macros"] }
-tokio-macros = "2.2"
-futures-util = "0.3"
-tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
-tokio-tungstenite = "0.21"
-
-# Database
-rusqlite = { version = "0.30", features = ["bundled"] }
-tokio-rusqlite = "0.5"
-
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-# Logging and metrics
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Error handling
-thiserror = "1.0"
-anyhow = "1.0"
-
-# GeoIP location
-maxminddb = "0.23"
-
-# Hashing and randomization
-sha2 = "0.10"
-rand = "0.8"
-
-# URL parsing
-url = "2.5"
-
-# User agent parsing
-uaparser = "0.6"
-
-# String parsing
-regex = "1.10"
-
-# Date and time
-chrono = "0.4"
-
-# Base64 encoding
-base64 = "0.21"
+[workspace]
+members = ["app", "migration"]
+resolver = "3"
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort" 
+panic = "abort"

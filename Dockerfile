@@ -1,33 +1,48 @@
-FROM rust:1.79-slim-buster as build
+FROM node:24-bookworm AS assets
+WORKDIR /workspace
 
-# create a new empty shell project
-RUN USER=root cargo new --bin atomlytics
-WORKDIR /atomlytics
+COPY package.json pnpm-lock.yaml ./
+COPY app/src ./app/src
+RUN corepack enable
+RUN pnpm install --frozen-lockfile
+RUN pnpm build:css
 
-# copy over your manifests
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./Cargo.toml ./Cargo.toml
+FROM rust:1.91-bookworm AS dev
+WORKDIR /workspace
 
-# this build step will cache your dependencies
-RUN cargo build --release
-RUN rm src/*.rs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs npm pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g pnpm
+RUN cargo install cargo-watch --locked
 
-# copy your source tree
-COPY ./src ./src
+FROM rust:1.91-bookworm AS builder
+WORKDIR /workspace
 
-# build for release
-RUN rm ./target/release/deps/atomlytics*
-RUN cargo build --release
+COPY Cargo.toml Cargo.lock ./
+COPY app/Cargo.toml ./app/Cargo.toml
+COPY migration/Cargo.toml ./migration/Cargo.toml
+COPY app/src ./app/src
+COPY migration/src ./migration/src
+COPY regexes.yaml ./regexes.yaml
+COPY GeoLite2-City.mmdb ./GeoLite2-City.mmdb
+COPY --from=assets /workspace/app/src/assets/app.css ./app/src/assets/app.css
 
-# our final base
-FROM debian:buster-slim
+RUN cargo build --release -p atomlytics
 
-# copy the build artifact from the build stage
-COPY --from=build /atomlytics/target/release/atomlytics .
-COPY ./GeoLite2-City.mmdb .
-COPY ./regexes.yaml .
-COPY ./db ./db
-COPY ./src/assets ./src/assets
+FROM debian:bookworm-slim AS runtime
+WORKDIR /app
 
-# set the startup command to run your binary
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /workspace/target/release/atomlytics ./atomlytics
+COPY --from=builder /workspace/regexes.yaml ./regexes.yaml
+COPY --from=builder /workspace/GeoLite2-City.mmdb ./GeoLite2-City.mmdb
+COPY --from=builder /workspace/app/src/assets ./app/src/assets
+
+ENV PORT=3000
+EXPOSE 3000
+
 CMD ["./atomlytics"]

@@ -1,0 +1,65 @@
+services:
+  proxy:
+    image: traefik:v3.1
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --api.dashboard=false
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - edge
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: atomlytics
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d atomlytics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - private
+
+  app:
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.example
+    environment:
+      APP_HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgres://postgres:postgres@db:5432/atomlytics
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.atomlytics.rule: Host(`${ATOMLYTICS_DOMAIN:-atomlytics.localhost}`)
+      traefik.http.routers.atomlytics.entrypoints: web
+      traefik.http.services.atomlytics.loadbalancer.server.port: "3000"
+    networks:
+      - edge
+      - private
+
+volumes:
+  postgres_data:
+
+networks:
+  edge:
+    name: atomlytics_edge
+  private:
+    name: atomlytics_private
+    internal: true

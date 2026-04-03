@@ -3,6 +3,8 @@
 .vscode
 config/
 target/
+node_modules/
+.pnpm-store/
 analytics.db
 .gitignore
 .ruby-version

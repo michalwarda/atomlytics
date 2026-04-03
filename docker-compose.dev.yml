@@ -1,0 +1,46 @@
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  app:
+    build:
+      context: .
+      target: dev
+    command: ["bash", "/workspace/docker/dev-entrypoint.sh"]
+    working_dir: /workspace
+    restart: unless-stopped
+    environment:
+      APP_HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgres://postgres:postgres@db:5432/atomlytics
+      ALLOW_DEMO_GEO_OVERRIDE: "true"
+      RUST_LOG: debug
+      CARGO_TERM_COLOR: always
+    volumes:
+      - .:/workspace
+      - node_modules_cache:/workspace/node_modules
+      - cargo_registry:/usr/local/cargo/registry
+      - cargo_git:/usr/local/cargo/git
+      - target_cache:/workspace/target
+
+  seed:
+    image: node:24-bookworm
+    command: ["node", "/workspace/docker/dev-seed.mjs"]
+    working_dir: /workspace
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      SEED_ENDPOINT: http://app:3000/api/event
+      DEV_SEED_DOMAIN: ${DEV_SEED_DOMAIN:-demo.atomlytics.localhost}
+    volumes:
+      - .:/workspace
+    networks:
+      - private
+
+volumes:
+  node_modules_cache:
+  cargo_registry:
+  cargo_git:
+  target_cache:

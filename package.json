@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "scripts": {
+    "build:css": "pnpm exec tailwindcss -i app/src/assets/styles.css -o app/src/assets/app.css --minify",
+    "watch:css": "pnpm exec tailwindcss -i app/src/assets/styles.css -o app/src/assets/app.css --watch"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.17"
+  }
+}
